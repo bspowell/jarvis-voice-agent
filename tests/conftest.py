@@ -5,6 +5,12 @@ from jarvis.tools import location
 
 
 @pytest.fixture(autouse=True)
+def no_real_firecrawl_key(monkeypatch):
+    """Tests never search the real web (or spend credits), even once .env has a Firecrawl key."""
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def fresh_location_caches(monkeypatch):
     """Every test starts with empty caches, as if Jarvis had just started."""
     monkeypatch.setattr(location, "_ip_place", None)

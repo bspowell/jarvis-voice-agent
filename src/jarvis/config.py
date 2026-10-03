@@ -27,7 +27,8 @@ class ModelSettings(BaseModel):
     jarvis: str = "claude-sonnet-5"
     notes: str = "claude-haiku-4-5"
     calendar: str = "claude-haiku-4-5"
-    search: str = "claude-sonnet-5-5"
+    search: str = "claude-haiku-4-5"  # quick lookups
+    search_deep: str = "claude-sonnet-5-5"  # "dig deeper" / "research"
     summarizer: str = "claude-haiku-4-5"
 
 

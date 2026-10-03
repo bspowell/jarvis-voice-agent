@@ -7,6 +7,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 
+from jarvis.agents.registry import agent_tools
 from jarvis.brain.memory import RepairInterruptedToolCalls, summarize_long_days
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
@@ -21,10 +22,11 @@ def build_jarvis(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
 ) -> CompiledStateGraph:
-    """Assemble Jarvis: model + personality + tools + memory."""
+    """Assemble Jarvis: model + personality + tools + sub-agents + memory."""
     return create_agent(
         model=make_model(settings.models.jarvis),
-        tools=[get_weather, remember_fact, recall_facts, forget_fact],
+        # His own quick tools, then one tool per sub-agent (e.g. search_agent).
+        tools=[get_weather, remember_fact, recall_facts, forget_fact, *agent_tools(settings)],
         system_prompt=load_prompt("jarvis"),
         # Middleware wraps each step of the loop, in this order:
         middleware=[

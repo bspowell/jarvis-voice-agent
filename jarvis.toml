@@ -5,7 +5,8 @@
 jarvis = "claude-sonnet-5"     # the orchestrator: writes every reply you hear; streams even after tool calls
 notes = "claude-haiku-4-5"
 calendar = "claude-haiku-4-5"
-search = "claude-sonnet-5-5"   # synthesizes several web pages, so a stronger model
+search = "claude-haiku-4-5"    # quick web lookups: fastest (~1.5 s quicker than Sonnet 5.5)
+search_deep = "claude-sonnet-5-5"  # "dig deeper" / "research": better judgment across searches
 summarizer = "claude-haiku-4-5"  # condenses very long days (see [memory])
 
 [location]

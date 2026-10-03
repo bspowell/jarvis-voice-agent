@@ -2,6 +2,7 @@
 
 Text chat calls it today; the voice agent will call it in Phase 7. Callers send text in and get
 Jarvis's reply back as a stream of text chunks; they never touch LangGraph directly.
+Events from tools (e.g. "the search agent started") arrive on `brain.events` as they happen.
 """
 
 from collections.abc import AsyncIterator
@@ -12,6 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from jarvis.brain.memory import daily_thread_id
+from jarvis.events import Event, EventBus
 
 
 def timestamped(text: str, now: datetime) -> str:
@@ -26,6 +28,7 @@ class Brain:
     def __init__(self, agent: CompiledStateGraph, new_day_hour: int = 4) -> None:
         self.agent = agent
         self.new_day_hour = new_day_hour
+        self.events = EventBus()  # chat (and later voice) subscribe to show what's happening
 
     def config(self, now: datetime | None = None) -> RunnableConfig:
         """Which conversation LangGraph should load and save: today's."""
@@ -43,8 +46,15 @@ class Brain:
         message = HumanMessage(timestamped(text, now))
         speaking_step = None  # which loop step Jarvis's current words come from
         async for chunk in self.agent.astream(
-            {"messages": [message]}, self.config(now), stream_mode="messages", version="v2"
+            {"messages": [message]},
+            self.config(now),
+            stream_mode=["messages", "custom"],  # his words + events tools write to the stream
+            version="v2",
         ):
+            if chunk["type"] == "custom":
+                if isinstance(chunk["data"], Event):
+                    self.events.publish(chunk["data"])
+                continue
             token, metadata = chunk["data"]
             # Only the model's own words: skips tool results and empty tool-call chunks.
             if metadata.get("langgraph_node") == "model" and token.text:

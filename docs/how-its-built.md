@@ -16,10 +16,12 @@ Text mode: `jarvis chat` → Brain directly
 |---|---|
 | `src/jarvis/` | The app. src layout: tests import the installed package, never loose files |
 | `src/jarvis/config.py` | Typed settings: secrets from `.env`, preferences from `jarvis.toml` |
-| `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat`, `doctor` |
-| `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality · `summary.md` = how long days are condensed) |
+| `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat`, `doctor` (keys, models, sub-agent health) |
+| `src/jarvis/events.py` | Event bus: tools announce what's happening (e.g. a sub-agent started); chat / voice / orb decide how to show it |
+| `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality · `search_agent.md` = the web researcher · `summary.md` = how long days are condensed) |
 | `src/jarvis/brain/` | `models.py` (model settings) · `jarvis.py` (the agent) · `brain.py` (the doorway) · `memory.py` (SQLite memory + its middleware) · `greeting.py` · `graph.py` (Studio entry) |
-| `src/jarvis/tools/` | Tools the model can call: `weather.py` · `location.py` (home city / IP / place names) · `memory_tools.py` (remember / recall / forget) · `errors.py` |
+| `src/jarvis/agents/` | Sub-agents, each wrapped as one tool for Jarvis: `search.py` (Search agent + health check) · `registry.py` (the list + roll call) |
+| `src/jarvis/tools/` | Tools the model can call: `weather.py` · `location.py` (home city / IP / place names) · `memory_tools.py` (remember / recall / forget) · `web_search.py` (Firecrawl, for the Search agent) · `errors.py` |
 | `langgraph.json` | Tells `langgraph dev` (Studio) where Jarvis's graph is |
 | `tests/` | pytest tests |
 | `docs/` | This map |
@@ -32,10 +34,12 @@ You type → jarvis chat → Brain.turn(text)
   → picks today's thread (jarvis-2026-10-03) + adds "[Saturday 3 October 2026, 2:05 PM PDT]" to your message
   → Jarvis agent: repair → (summarize, if the day is huge) → model (Sonnet 5 + persona) ⇄ tools
      ↳ tools: get_weather · remember / recall / forget facts (store)
+     ↳ search_agent → Search agent (Haiku 4.5 · Sonnet 5.5 deep) ⇄ Firecrawl → short report
+          └─ event "agent_started" → brain.events → chat shows "Right away, sir."
   → streamed chunks → printed as they arrive
-  → checkpointer saves the thread to data/jarvis.db · LangSmith records the trace
+  → checkpointer saves the thread to data/jarvis.db · LangSmith records the trace (sub-agent nested inside)
 ```
-- Boot greeting: plain Python, instant + free.
+- Boot greeting: plain Python, instant + free. A roll call (health checks) counts the sub-agents present.
 
 ## Config
 - `.env`: secrets, gitignored · `.env.example`: template, committed

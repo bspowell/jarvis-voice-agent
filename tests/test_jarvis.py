@@ -2,13 +2,24 @@ import json
 
 import httpx
 import pytest
-from fakes import FORECAST, FORECASTER, GEOCODER, PARIS_RESULTS, FakeToolCallingModel, fake_web
+from fakes import (
+    FORECAST,
+    FORECASTER,
+    GEOCODER,
+    LANGGRAPH_PAGES,
+    LANGGRAPH_RESULTS,
+    PARIS_RESULTS,
+    FakeFirecrawl,
+    FakeToolCallingModel,
+    fake_web,
+)
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 
+from jarvis.agents import search
 from jarvis.brain import jarvis
 from jarvis.brain.jarvis import build_jarvis
 from jarvis.config import Settings
-from jarvis.tools import weather
+from jarvis.tools import weather, web_search
 from jarvis.tools.memory_tools import list_facts
 
 ASKS_FOR_PARIS = AIMessage(
@@ -16,11 +27,15 @@ ASKS_FOR_PARIS = AIMessage(
 )
 
 
-def jarvis_with_script(monkeypatch, *replies: AIMessage, store=None):
-    """The real Jarvis (tools, middleware) with a scripted model instead of Claude."""
+def jarvis_with_script(
+    monkeypatch, *replies: AIMessage, store=None, search_replies=(), firecrawl_api_key=None
+):
+    """The real Jarvis (tools, sub-agents, middleware) with scripted models instead of Claude."""
     model = FakeToolCallingModel(messages=iter(replies))
     monkeypatch.setattr(jarvis, "make_model", lambda name: model)
-    return build_jarvis(Settings(_env_file=None), store=store)
+    search_model = FakeToolCallingModel(messages=iter(search_replies))
+    monkeypatch.setattr(search, "make_model", lambda name: search_model)
+    return build_jarvis(Settings(_env_file=None, firecrawl_api_key=firecrawl_api_key), store=store)
 
 
 def web_answers(monkeypatch, answers: dict) -> None:
@@ -68,3 +83,30 @@ async def test_jarvis_remembers_when_asked(monkeypatch, memory):
     assert answer.text == "Noted, sir."
     saved = await list_facts(memory.store)  # the tool reached the store through ToolRuntime
     assert saved["facts"][0]["fact"] == fact
+
+
+async def test_jarvis_delegates_web_searches_to_his_search_agent(monkeypatch):
+    firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
+    monkeypatch.setattr(web_search, "firecrawl_client", lambda: firecrawl)
+    delegates = AIMessage(
+        "",
+        tool_calls=[
+            ToolCall(name="search_agent", args={"request": "Latest LangGraph?"}, id="call_1")
+        ],
+    )
+    searches = AIMessage(
+        "", tool_calls=[ToolCall(name="web_search", args={"query": "LangGraph release"}, id="s1")]
+    )
+    report = "LangGraph 1.2.12 came out on 30 September 2026. Sources: PyPI."
+    agent = jarvis_with_script(
+        monkeypatch,
+        delegates,
+        AIMessage("Version 1.2.12, sir, barely a week old."),
+        search_replies=[searches, AIMessage(report)],
+        firecrawl_api_key="fc-test",
+    )
+    _you, delegation, tool_result, answer = await ask(agent, "What's the latest LangGraph?")
+    assert delegation.tool_calls[0]["name"] == "search_agent"
+    assert tool_result.text == report  # the Search agent's report, not the pages it read
+    assert answer.text == "Version 1.2.12, sir, barely a week old."
+    assert firecrawl.searches == ["LangGraph release"]

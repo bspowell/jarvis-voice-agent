@@ -9,6 +9,7 @@ authors = [
 # 3.13 only: some voice libraries (kokoro-onnx) and LangGraph Studio don't support 3.14 yet.
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "firecrawl-py>=4.46.2",
     "httpx>=0.28.1",
     "langchain>=1.4.3",
     "langchain-anthropic>=1.7.5",

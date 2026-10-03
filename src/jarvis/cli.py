@@ -7,16 +7,19 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from jarvis.agents.registry import Health, roll_call
 from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import boot_greeting
 from jarvis.brain.jarvis import build_jarvis
 from jarvis.brain.memory import DB_FILE, open_memory
 from jarvis.config import SECRET_PURPOSES, get_settings
+from jarvis.events import Event
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
 EXIT_WORDS = {"exit", "quit"}
+FILLER = "Right away, sir."  # shown while a sub-agent works; voice will say it (Phase 7)
 
 
 @app.callback()
@@ -40,14 +43,30 @@ def chat() -> None:
         try:
             jarvis = build_jarvis(settings, checkpointer=memory.checkpointer, store=memory.store)
             brain = Brain(jarvis, new_day_hour=settings.memory.new_day_hour)
-            greeting = boot_greeting(datetime.now(), agents_present=0)
-            console.print(f"[bold cyan]Jarvis:[/] {greeting}")
+            brain.events.subscribe(show_event)
+            with console.status("Calling the roll…"):
+                roll = runner.run(roll_call(settings))
+            present = sum(health.present for health in roll.values())
+            console.print(f"[bold cyan]Jarvis:[/] {boot_greeting(datetime.now(), present)}")
+            show_absent_agents(roll)
             if earlier := runner.run(brain.messages_today()):
                 console.print(f"[dim](Continuing today's conversation: {earlier} messages.)[/]")
             _chat_loop(runner, brain)
         finally:
             runner.run(memory.close())
     console.print("\n[bold cyan]Jarvis:[/] Very good, sir.")
+
+
+def show_event(event: Event) -> None:
+    """What text chat shows while Jarvis works."""
+    if event.name == "agent_started":
+        console.print(f"[dim]{FILLER}[/] ", end="")
+
+
+def show_absent_agents(roll: dict[str, Health]) -> None:
+    for name, health in roll.items():
+        if not health.present:
+            console.print(f"[dim]({name} agent absent: {health.detail})[/]")
 
 
 def _chat_loop(runner: asyncio.Runner, brain: Brain) -> None:
@@ -96,3 +115,12 @@ def doctor() -> None:
     for agent, model in settings.models.model_dump().items():
         models.add_row(agent, model)
     console.print(models)
+
+    agents = Table(title="Sub-agents (health checks)")
+    agents.add_column("Agent")
+    agents.add_column("Status")
+    agents.add_column("Details")
+    for name, health in asyncio.run(roll_call(settings)).items():
+        status = "[green]present[/]" if health.present else "[red]absent[/]"
+        agents.add_row(name, status, health.detail)
+    console.print(agents)

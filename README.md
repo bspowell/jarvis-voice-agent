@@ -10,8 +10,8 @@ A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, hologr
 ## Commands
 | Command | What it does |
 |---|---|
-| `uv run jarvis chat` | Talk to Jarvis in the terminal (remembers today's conversation) |
-| `uv run jarvis doctor` | Key status (set/missing) + models in use |
+| `uv run jarvis chat` | Talk to Jarvis in the terminal (remembers today's conversation; searches the web via his Search agent) |
+| `uv run jarvis doctor` | Key status (set/missing), models in use, sub-agent health checks |
 | `uv run langgraph dev` | LangGraph Studio: see and run Jarvis's graph in the browser |
 | `uv run pytest` | Run tests |
 | `uv run ruff check . && uv run ruff format .` | Lint + format |
