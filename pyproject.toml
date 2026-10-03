@@ -9,6 +9,10 @@ authors = [
 # 3.13 only: some voice libraries (kokoro-onnx) and LangGraph Studio don't support 3.14 yet.
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "langchain>=1.4.3",
+    "langchain-anthropic>=1.7.5",
+    "langgraph>=1.2.12",
+    "langsmith>=0.14.4",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.4",
     "rich>=15.0.0",

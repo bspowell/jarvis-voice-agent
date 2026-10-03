@@ -16,10 +16,21 @@ Text mode: `jarvis chat` → Brain directly
 |---|---|
 | `src/jarvis/` | The app. src layout: tests import the installed package, never loose files |
 | `src/jarvis/config.py` | Typed settings: secrets from `.env`, preferences from `jarvis.toml` |
-| `src/jarvis/cli.py` | The `jarvis` command (Typer) |
+| `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat`, `doctor` |
+| `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality) |
+| `src/jarvis/brain/` | `models.py` (model settings) · `jarvis.py` (the agent) · `brain.py` (the doorway) · `greeting.py` |
 | `tests/` | pytest tests |
 | `docs/` | This map |
 | `pyproject.toml` · `uv.lock` | Dependencies; the lock pins exact versions |
+
+## The brain: one chat turn
+```
+You type → jarvis chat → Brain.turn(text)
+  → adds "[Saturday 3 October 2026, 2:05 PM PDT]" to your message
+  → Jarvis agent (Opus 5.5 + persona) → streamed chunks → printed as they arrive
+  → checkpointer saves the thread · LangSmith records the trace
+```
+- Boot greeting: plain Python, instant + free.
 
 ## Config
 - `.env`: secrets, gitignored · `.env.example`: template, committed
@@ -36,8 +47,8 @@ Text mode: `jarvis chat` → Brain directly
 | # | Phase | Status |
 |---|---|---|
 | 0 | Foundation | ✅ |
-| 1 | Brain v0: text chat, persona, tracing | ⏳ |
-| 2 | First tool: weather + LangGraph Studio | |
+| 1 | Brain v0: text chat, persona, tracing | ✅ |
+| 2 | First tool: weather + LangGraph Studio | ⏳ |
 | 3 | Memory: daily thread + long-term facts | |
 | 4 | Search sub-agent | |
 | 5 | Calendar sub-agent + sign-in + confirmations | |
