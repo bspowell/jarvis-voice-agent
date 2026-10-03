@@ -9,6 +9,7 @@ authors = [
 # 3.13 only: some voice libraries (kokoro-onnx) and LangGraph Studio don't support 3.14 yet.
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "httpx>=0.28.1",
     "langchain>=1.4.3",
     "langchain-anthropic>=1.7.5",
     "langgraph>=1.2.12",
@@ -28,6 +29,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "langgraph-cli[inmem]>=0.4.32",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.10",

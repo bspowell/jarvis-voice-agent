@@ -2,7 +2,10 @@
 # Each phase adds its own section here.
 
 [models]
-jarvis = "claude-opus-5-5"     # the orchestrator: writes every reply you hear
+jarvis = "claude-sonnet-5"     # the orchestrator: writes every reply you hear; streams even after tool calls
 notes = "claude-haiku-4-5"
 calendar = "claude-haiku-4-5"
 search = "claude-sonnet-5-5"   # synthesizes several web pages, so a stronger model
+
+[location]
+home_city = "Vancouver, BC"    # used when your location can't be found from your IP address

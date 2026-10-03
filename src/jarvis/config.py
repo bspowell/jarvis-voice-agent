@@ -24,10 +24,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class ModelSettings(BaseModel):
     """Which Claude model each agent thinks with."""
 
-    jarvis: str = "claude-opus-5-5"
+    jarvis: str = "claude-sonnet-5"
     notes: str = "claude-haiku-4-5"
     calendar: str = "claude-haiku-4-5"
     search: str = "claude-sonnet-5-5"
+
+
+class LocationSettings(BaseModel):
+    """Where Jarvis assumes you are when he can't work it out from your IP address."""
+
+    home_city: str = "Vancouver, BC"
 
 
 class Settings(BaseSettings):
@@ -49,6 +55,7 @@ class Settings(BaseSettings):
 
     # Preferences (jarvis.toml)
     models: ModelSettings = Field(default_factory=ModelSettings)
+    location: LocationSettings = Field(default_factory=LocationSettings)
     data_dir: Path = PROJECT_ROOT / "data"
 
     @classmethod

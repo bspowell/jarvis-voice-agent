@@ -28,10 +28,15 @@ class Brain:
     async def turn(self, text: str) -> AsyncIterator[str]:
         """Send one message to Jarvis and stream his reply back, chunk by chunk."""
         message = HumanMessage(timestamped(text, datetime.now().astimezone()))
+        speaking_step = None  # which loop step Jarvis's current words come from
         async for chunk in self.agent.astream(
             {"messages": [message]}, self.config, stream_mode="messages", version="v2"
         ):
             token, metadata = chunk["data"]
             # Only the model's own words: skips tool results and empty tool-call chunks.
             if metadata.get("langgraph_node") == "model" and token.text:
+                step = metadata.get("langgraph_step")
+                if speaking_step is not None and step != speaking_step:
+                    yield " "  # he spoke, used a tool, now speaks again: keep sentences apart
+                speaking_step = step
                 yield token.text

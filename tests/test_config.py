@@ -5,7 +5,7 @@ from jarvis.config import ModelSettings, Settings
 
 def test_model_defaults_match_the_plan():
     models = ModelSettings()
-    assert models.jarvis == "claude-opus-5-5"
+    assert models.jarvis == "claude-sonnet-5"
     assert models.notes == "claude-haiku-4-5"
     assert models.search == "claude-sonnet-5-5"
 

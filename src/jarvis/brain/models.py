@@ -6,7 +6,7 @@ from langchain_anthropic import ChatAnthropic
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
-# Opt-in API features for the newer models (Opus 5.5, Sonnet 5.5):
+# Opt-in API features that matter on the 5.5 models (and are accepted by Sonnet 5 / Opus 5 too):
 # - thinking-binding-controls: if older history no longer matches (we added a tool, summarized),
 #   stale thinking blocks are dropped instead of the request failing.
 # - server-side-fallback: if a safety check wrongly declines, the API retries on a backup model.
