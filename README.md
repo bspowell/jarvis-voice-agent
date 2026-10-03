@@ -16,4 +16,4 @@ A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, hologr
 | `uv run ruff check . && uv run ruff format .` | Lint + format |
 
 ## Docs
-- [How it's built](docs/how-its-built.md): architecture map + roadmap
+- [How it's built](docs/how-its-built.md): architecture map
