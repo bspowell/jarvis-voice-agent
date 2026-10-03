@@ -12,4 +12,5 @@
 - Voice code never imports LangGraph: it only calls `Brain.turn()`.
 - Never write LangChain or LiveKit code from memory: load the matching skill / docs MCP first.
 - Claude models: frozen system prompt (time goes in user messages), no `temperature`, no forced `tool_choice`.
-- Writes need user confirmation (HITL); no delete tools.
+- Writes need user confirmation (HITL); no delete tools. Exception: Jarvis's own memory facts
+  (`remember_fact` / `forget_fact` run when the user asks).

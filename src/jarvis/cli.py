@@ -4,13 +4,13 @@ import asyncio
 from datetime import datetime
 
 import typer
-from langgraph.checkpoint.memory import InMemorySaver
 from rich.console import Console
 from rich.table import Table
 
 from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import boot_greeting
 from jarvis.brain.jarvis import build_jarvis
+from jarvis.brain.memory import DB_FILE, open_memory
 from jarvis.config import SECRET_PURPOSES, get_settings
 
 app = typer.Typer(no_args_is_help=True)
@@ -34,25 +34,36 @@ def chat() -> None:
         )
         raise typer.Exit(1)
 
-    brain = Brain(build_jarvis(settings, checkpointer=InMemorySaver()), thread_id="chat")
-    console.print(f"[bold cyan]Jarvis:[/] {boot_greeting(datetime.now(), agents_present=0)}")
-
-    # One event loop for the whole chat, so connections opened by the brain stay valid.
+    # One event loop for the whole chat, so the memory's database connections stay valid.
     with asyncio.Runner() as runner:
-        while True:
-            try:
-                text = console.input("\n[bold]You:[/] ").strip()
-            except (EOFError, KeyboardInterrupt):
-                break
-            if text.lower() in EXIT_WORDS:
-                break
-            if not text:
-                continue
-            try:
-                runner.run(_print_reply(brain, text))
-            except KeyboardInterrupt:
-                console.print("\n[dim](interrupted)[/]")
+        memory = runner.run(open_memory(settings.data_dir / DB_FILE))
+        try:
+            jarvis = build_jarvis(settings, checkpointer=memory.checkpointer, store=memory.store)
+            brain = Brain(jarvis, new_day_hour=settings.memory.new_day_hour)
+            greeting = boot_greeting(datetime.now(), agents_present=0)
+            console.print(f"[bold cyan]Jarvis:[/] {greeting}")
+            if earlier := runner.run(brain.messages_today()):
+                console.print(f"[dim](Continuing today's conversation: {earlier} messages.)[/]")
+            _chat_loop(runner, brain)
+        finally:
+            runner.run(memory.close())
     console.print("\n[bold cyan]Jarvis:[/] Very good, sir.")
+
+
+def _chat_loop(runner: asyncio.Runner, brain: Brain) -> None:
+    while True:
+        try:
+            text = console.input("\n[bold]You:[/] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if text.lower() in EXIT_WORDS:
+            return
+        if not text:
+            continue
+        try:
+            runner.run(_print_reply(brain, text))
+        except KeyboardInterrupt:
+            console.print("\n[dim](interrupted)[/]")
 
 
 async def _print_reply(brain: Brain, text: str) -> None:

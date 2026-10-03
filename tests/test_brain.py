@@ -14,7 +14,7 @@ def make_brain(*replies: str | AIMessage, tools=()) -> Brain:
     """A Brain whose model is fake: scripted replies, no API calls, no cost."""
     model = FakeToolCallingModel(messages=iter(replies))
     agent = create_agent(model, tools=list(tools), name="jarvis", checkpointer=InMemorySaver())
-    return Brain(agent, thread_id="test")
+    return Brain(agent)
 
 
 @tool
@@ -38,14 +38,14 @@ async def test_thread_remembers_earlier_messages():
     brain = make_brain("First reply.", "Second reply.")
     await collect(brain, "one")
     await collect(brain, "two")
-    state = await brain.agent.aget_state(brain.config)
+    state = await brain.agent.aget_state(brain.config())
     assert len(state.values["messages"]) == 4  # you, Jarvis, you, Jarvis
 
 
 async def test_user_message_carries_the_time():
     brain = make_brain("Noted.")
     await collect(brain, "what time is it?")
-    state = await brain.agent.aget_state(brain.config)
+    state = await brain.agent.aget_state(brain.config())
     assert state.values["messages"][0].content.startswith("[")
 
 

@@ -28,6 +28,13 @@ class ModelSettings(BaseModel):
     notes: str = "claude-haiku-4-5"
     calendar: str = "claude-haiku-4-5"
     search: str = "claude-sonnet-5-5"
+    summarizer: str = "claude-haiku-4-5"
+
+
+class MemorySettings(BaseModel):
+    """How Jarvis remembers."""
+
+    new_day_hour: int = Field(default=4, ge=0, le=23)  # today's conversation starts fresh at 4 AM
 
 
 class LocationSettings(BaseModel):
@@ -56,6 +63,7 @@ class Settings(BaseSettings):
     # Preferences (jarvis.toml)
     models: ModelSettings = Field(default_factory=ModelSettings)
     location: LocationSettings = Field(default_factory=LocationSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
     data_dir: Path = PROJECT_ROOT / "data"
 
     @classmethod

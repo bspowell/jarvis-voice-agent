@@ -11,6 +11,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
+from jarvis.brain.memory import daily_thread_id
+
 
 def timestamped(text: str, now: datetime) -> str:
     """Prefix the user's words with the local time, so the system prompt never has to change."""
@@ -21,16 +23,27 @@ def timestamped(text: str, now: datetime) -> str:
 
 
 class Brain:
-    def __init__(self, agent: CompiledStateGraph, thread_id: str) -> None:
+    def __init__(self, agent: CompiledStateGraph, new_day_hour: int = 4) -> None:
         self.agent = agent
-        self.config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        self.new_day_hour = new_day_hour
+
+    def config(self, now: datetime | None = None) -> RunnableConfig:
+        """Which conversation LangGraph should load and save: today's."""
+        now = now or datetime.now().astimezone()
+        return {"configurable": {"thread_id": daily_thread_id(now, self.new_day_hour)}}
+
+    async def messages_today(self) -> int:
+        """How many messages today's conversation already holds (0 on a fresh day)."""
+        state = await self.agent.aget_state(self.config())
+        return len(state.values.get("messages", []))
 
     async def turn(self, text: str) -> AsyncIterator[str]:
         """Send one message to Jarvis and stream his reply back, chunk by chunk."""
-        message = HumanMessage(timestamped(text, datetime.now().astimezone()))
+        now = datetime.now().astimezone()
+        message = HumanMessage(timestamped(text, now))
         speaking_step = None  # which loop step Jarvis's current words come from
         async for chunk in self.agent.astream(
-            {"messages": [message]}, self.config, stream_mode="messages", version="v2"
+            {"messages": [message]}, self.config(now), stream_mode="messages", version="v2"
         ):
             token, metadata = chunk["data"]
             # Only the model's own words: skips tool results and empty tool-call chunks.

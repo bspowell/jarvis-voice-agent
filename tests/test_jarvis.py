@@ -9,17 +9,18 @@ from jarvis.brain import jarvis
 from jarvis.brain.jarvis import build_jarvis
 from jarvis.config import Settings
 from jarvis.tools import weather
+from jarvis.tools.memory_tools import list_facts
 
 ASKS_FOR_PARIS = AIMessage(
     "", tool_calls=[ToolCall(name="get_weather", args={"place": "Paris"}, id="call_1")]
 )
 
 
-def jarvis_with_script(monkeypatch, *replies: AIMessage):
+def jarvis_with_script(monkeypatch, *replies: AIMessage, store=None):
     """The real Jarvis (tools, middleware) with a scripted model instead of Claude."""
     model = FakeToolCallingModel(messages=iter(replies))
     monkeypatch.setattr(jarvis, "make_model", lambda name: model)
-    return build_jarvis(Settings(_env_file=None))
+    return build_jarvis(Settings(_env_file=None), store=store)
 
 
 def web_answers(monkeypatch, answers: dict) -> None:
@@ -55,3 +56,15 @@ async def test_real_bugs_still_crash(monkeypatch):
     agent = jarvis_with_script(monkeypatch, ASKS_FOR_PARIS)
     with pytest.raises(KeyError):  # a bug should be loud, not politely explained away
         await ask(agent, "Weather in Paris?")
+
+
+async def test_jarvis_remembers_when_asked(monkeypatch, memory):
+    fact = "The user's friend Ruth lives in Perth."
+    remembers = AIMessage(
+        "", tool_calls=[ToolCall(name="remember_fact", args={"fact": fact}, id="call_1")]
+    )
+    agent = jarvis_with_script(monkeypatch, remembers, AIMessage("Noted, sir."), store=memory.store)
+    *_, answer = await ask(agent, "Remember that my friend Ruth lives in Perth.")
+    assert answer.text == "Noted, sir."
+    saved = await list_facts(memory.store)  # the tool reached the store through ToolRuntime
+    assert saved["facts"][0]["fact"] == fact
