@@ -1,0 +1,44 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "Jarvis: a dry-witted voice AI butler built with LangChain, LangGraph and LiveKit."
+readme = "README.md"
+authors = [
+    { name = "Sean Powell", email = "82974206+bspowell@users.noreply.github.com" }
+]
+# 3.13 only: some voice libraries (kokoro-onnx) and LangGraph Studio don't support 3.14 yet.
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.4",
+    "rich>=15.0.0",
+    "typer>=0.27.2",
+]
+
+[project.scripts]
+jarvis = "jarvis.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = [".agents", ".claude"]  # third-party agent skills, not our code
+
+[tool.ruff.lint]
+# E/F: errors · I: import order · UP: modern syntax · B: likely bugs · SIM: simpler code · RUF: ruff extras
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
