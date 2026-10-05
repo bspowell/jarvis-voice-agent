@@ -1,7 +1,7 @@
 """Jarvis's event bus: tools announce what's happening; each front end decides how to show it.
 
 Example: the search tool announces "the search agent started". Text chat prints
-"Right away, sir."; the voice agent (Phase 7) will play it as cached audio. Events carry
+"Right away, sir."; the voice agent says it, from a recording. Events carry
 facts, never wording, so the same event works for chat, voice and the overlay.
 """
 

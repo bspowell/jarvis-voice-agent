@@ -1,6 +1,8 @@
-"""The boot greeting: plain Python, so it's instant and free (no model call needed)."""
+"""Jarvis's fixed lines: plain Python, so they're instant and free (no model call needed)."""
 
 from datetime import datetime
+
+FILLER = "Right away, sir."  # while a sub-agent works: chat prints it, voice says it
 
 NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"]
 

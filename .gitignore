@@ -13,6 +13,7 @@ dist/
 # Secrets and runtime data (API keys, databases, OAuth files, cached audio)
 .env
 data/
+console-recordings/
 
 # macOS
 .DS_Store

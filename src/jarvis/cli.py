@@ -1,9 +1,7 @@
 """The `jarvis` command: `uv run jarvis <command>`."""
 
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -13,43 +11,20 @@ from rich.table import Table
 
 from jarvis.agents.registry import Health, roll_call
 from jarvis.auth import google, notion
+from jarvis.auth.accounts import ACCOUNTS, Service
 from jarvis.auth.store import SignInFailed, SignInStore
-from jarvis.brain.approvals import Approvals
 from jarvis.brain.brain import Brain
-from jarvis.brain.greeting import boot_greeting
-from jarvis.brain.jarvis import build_jarvis
+from jarvis.brain.greeting import FILLER, boot_greeting
+from jarvis.brain.jarvis import make_brain
 from jarvis.brain.memory import DB_FILE, open_memory
-from jarvis.brain.models import make_model
 from jarvis.config import SECRET_PURPOSES, Settings, get_settings
 from jarvis.events import Event
+from jarvis.voice.health import check_voice
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
 EXIT_WORDS = {"exit", "quit"}
-FILLER = "Right away, sir."  # shown while a sub-agent works; voice will say it (Phase 7)
-
-
-class Service(StrEnum):
-    """The online accounts Jarvis signs in to."""
-
-    google = "google"
-    notion = "notion"
-
-
-@dataclass(frozen=True)
-class Account:
-    """The chat's words for one service's sign-in."""
-
-    name: str  # "Google"
-    button: str  # the sign-in button's label
-    signed_in: str  # sent for you once you've signed in, so Jarvis carries on with your request
-
-
-ACCOUNTS = {
-    Service.google: Account("Google", "Sign in with Google", "I've signed in to Google."),
-    Service.notion: Account("Notion", "Connect Notion", "I've connected Notion."),
-}
 
 
 @app.callback()
@@ -71,9 +46,7 @@ def chat() -> None:
     with asyncio.Runner() as runner:
         memory = runner.run(open_memory(settings.data_dir / DB_FILE))
         try:
-            jarvis = build_jarvis(settings, checkpointer=memory.checkpointer, store=memory.store)
-            approvals = Approvals(make_model(settings.models.approvals))
-            brain = Brain(jarvis, new_day_hour=settings.memory.new_day_hour, approvals=approvals)
+            brain = make_brain(settings, memory)
             sign_ins = SignInRequests()
             brain.events.subscribe(show_event)
             brain.events.subscribe(sign_ins.note)
@@ -254,6 +227,15 @@ def doctor() -> None:
         status = "[green]present[/]" if health.present else "[red]absent[/]"
         agents.add_row(name, status, health.detail)
     console.print(agents)
+
+    voice = Table(title="Voice (live checks)")
+    voice.add_column("Part")
+    voice.add_column("Status")
+    voice.add_column("Details")
+    for part, health in asyncio.run(check_voice(settings)).items():
+        status = "[green]ready[/]" if health.present else "[yellow]not ready[/]"
+        voice.add_row(part, status, health.detail)
+    console.print(voice)
 
 
 def google_status(settings: Settings) -> str:

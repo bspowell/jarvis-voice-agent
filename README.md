@@ -10,8 +10,10 @@ A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, hologr
 ## Commands
 | Command | What it does |
 |---|---|
-| `uv run jarvis chat` | Talk to Jarvis in the terminal (remembers today's conversation; Search and Calendar agents; asks before any change) |
-| `uv run jarvis doctor` | Key status (set/missing), sign-ins, models in use, sub-agent health checks |
+| `lk agent console` | Talk to Jarvis by voice, with your mic and speakers (`m` mute, `Ctrl+T` type, `q` quit) |
+| `lk agent debugger start` / `say "…"` / `stop` | Drive the voice agent with typed turns (no audio): replies + timings |
+| `uv run jarvis chat` | Talk to Jarvis in the terminal (remembers today's conversation; Search, Calendar and Notes agents; asks before any change) |
+| `uv run jarvis doctor` | Key status (set/missing), sign-ins, models in use, sub-agent health, voice checks (ElevenLabs credits left) |
 | `uv run jarvis login [google\|notion]` / `logout` | Sign in to / out of Google (default) or Notion (chat also offers a button the first time) |
 | `uv run langgraph dev` | LangGraph Studio: see and run Jarvis's graph in the browser |
 | `uv run pytest` | Run tests |

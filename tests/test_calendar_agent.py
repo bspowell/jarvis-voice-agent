@@ -124,6 +124,23 @@ async def test_no_means_nothing_is_saved(monkeypatch):
     )
 
 
+async def test_the_filler_plays_once_per_request_not_again_on_your_answer(monkeypatch):
+    signed_in()
+    brain, _, _, _ = brain_with(
+        monkeypatch,
+        jarvis_says=[ASKS_CALENDAR, AIMessage("Very good, sir, nothing saved.")],
+        calendar_says=[proposes_lunch("2026-10-05T12:00", "c1"), AIMessage("Nothing booked.")],
+        readings=[Reading(decision="reject")],
+    )
+    events: list[str] = []
+    brain.events.subscribe(lambda event: events.append(event.name))
+    await say(brain, BOOK_LUNCH)
+    assert events == ["agent_started", "approval_needed"]
+    events.clear()
+    await say(brain, "No, leave it")  # the paused tool runs again from the top...
+    assert events == []  # ...but its start isn't announced twice
+
+
 async def test_a_change_is_proposed_again_and_needs_its_own_yes(monkeypatch):
     signed_in()
     brain, google, calendar_model, _ = brain_with(

@@ -1,7 +1,7 @@
 """The Brain: the single doorway into Jarvis's mind.
 
-Text chat calls it today; the voice agent will call it in Phase 7. Callers send text in and get
-Jarvis's reply back as a stream of text chunks; they never touch LangGraph directly.
+Text chat and the voice agent both call it. Callers send text in and get Jarvis's reply back as a
+stream of text chunks; they never touch LangGraph directly.
 Events from tools (e.g. "the search agent started") arrive on `brain.events` as they happen.
 When a change needs your OK, the reply ends with a "Shall I…?", and your next message is read
 as the answer (see `approvals.py`).
@@ -39,13 +39,21 @@ class Brain:
         self.agent = agent
         self.new_day_hour = new_day_hour
         self.approvals = approvals  # asks "Shall I…?" before any change and reads your answer
-        self.events = EventBus()  # chat (and later voice) subscribe to show what's happening
+        self.events = EventBus()  # chat and voice subscribe to show what's happening
         self.question: Question | None = None  # a "Shall I…?" waiting for your answer
 
     def config(self, now: datetime | None = None) -> RunnableConfig:
         """Which conversation LangGraph should load and save: today's."""
         now = now or datetime.now().astimezone()
         return {"configurable": {"thread_id": daily_thread_id(now, self.new_day_hour)}}
+
+    def withdraw_question(self) -> None:
+        """You didn't hear the "Shall I…?" to the end (voice: you talked over it).
+
+        A question you never heard can't be answered: your next message is a new message, and
+        the change it asked about is dropped, unsaved.
+        """
+        self.question = None
 
     async def messages_today(self) -> int:
         """How many messages today's conversation already holds (0 on a fresh day)."""
@@ -75,6 +83,9 @@ class Brain:
         """Stream Jarvis's words; if a change is waiting for your OK, end by asking for it."""
         speaking_step = None  # which loop step Jarvis's current words come from
         paused: list[Interrupt] = []  # changes waiting for your OK
+        # Resuming re-runs the paused tool from the top, so its "agent started" is a repeat, not
+        # new work: the filler already played for this request.
+        resuming = isinstance(graph_input, Command)
         async for chunk in self.agent.astream(
             graph_input,
             config,
@@ -86,8 +97,9 @@ class Brain:
                 paused += chunk["data"].get("__interrupt__", ())
                 continue
             if chunk["type"] == "custom":
-                if isinstance(chunk["data"], Event):
-                    self.events.publish(chunk["data"])
+                event = chunk["data"]
+                if isinstance(event, Event) and not (resuming and event.name == "agent_started"):
+                    self.events.publish(event)
                 continue
             token, metadata = chunk["data"]
             # Only the model's own words: skips tool results and empty tool-call chunks.

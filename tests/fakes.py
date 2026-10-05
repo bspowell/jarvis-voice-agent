@@ -2,7 +2,8 @@
 
 import json
 import re
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -20,6 +21,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableLambda
+from livekit import rtc
 from pydantic import Field
 
 
@@ -420,3 +422,42 @@ class FakeNotion:
         @server.tool(name="notion-duplicate-page")
         def duplicate_page(page_id: str) -> str:
             raise AssertionError("Jarvis is never given this tool")
+
+
+# --- His voice (ElevenLabs) ---
+class FakeVoice:
+    """Stands in for ElevenLabs: every line "speaks" as 30 ms of quiet audio, or fails if told to.
+
+    `lines` records what it was asked to say.
+    """
+
+    SAMPLE_RATE = 24000
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.lines: list[str] = []
+
+    def synthesize(self, text: str) -> "FakeSpeech":
+        self.lines.append(text)
+        return FakeSpeech(self.fail)
+
+
+class FakeSpeech:
+    """What `synthesize()` returns: used with `async with`, then read frame by frame."""
+
+    def __init__(self, fail: bool) -> None:
+        self.fail = fail
+
+    async def __aenter__(self) -> "FakeSpeech":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def __aiter__(self) -> AsyncIterator[SimpleNamespace]:
+        if self.fail:
+            raise RuntimeError("ElevenLabs is down.")
+        for _ in range(3):  # three 10 ms frames
+            samples = FakeVoice.SAMPLE_RATE // 100
+            frame = rtc.AudioFrame(b"\x01\x00" * samples, FakeVoice.SAMPLE_RATE, 1, samples)
+            yield SimpleNamespace(frame=frame)

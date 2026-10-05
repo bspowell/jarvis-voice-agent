@@ -15,12 +15,16 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def offline_roll_call(monkeypatch):
-    """`doctor` checks the sub-agents; answer for them so tests never touch the network."""
+    """`doctor` checks the sub-agents and the voice; answer for them so tests stay offline."""
 
     async def roll_call(settings):
         return {"search": Health(True, "Firecrawl ready, 480 credits left.")}
 
+    async def check_voice(settings):
+        return {"Ears (speech to text)": Health(False, "DEEPGRAM_API_KEY is missing from .env.")}
+
     monkeypatch.setattr(cli, "roll_call", roll_call)
+    monkeypatch.setattr(cli, "check_voice", check_voice)
 
 
 def test_help_lists_commands():
@@ -39,6 +43,13 @@ def test_doctor_reports_sub_agent_health():
     result = runner.invoke(app, ["doctor"])
     assert "present" in result.output
     assert "480 credits left" in result.output
+
+
+def test_doctor_shows_the_voice_checks():
+    result = runner.invoke(app, ["doctor"])
+    assert "Voice" in result.output
+    assert "not ready" in result.output
+    assert "DEEPGRAM_API_KEY is missing" in result.output
 
 
 def test_doctor_shows_the_sign_ins():

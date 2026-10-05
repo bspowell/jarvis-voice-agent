@@ -63,6 +63,14 @@ class LocationSettings(BaseModel):
     home_city: str = "Vancouver, BC"
 
 
+class VoiceSettings(BaseModel):
+    """How Jarvis listens and speaks (the voice agent)."""
+
+    stt_model: str = "flux-general-en"  # Deepgram Flux: your words, and when you've finished
+    tts_model: str = "eleven_v4_turbo"  # ElevenLabs model for his voice (ELEVENLABS_VOICE_ID)
+    fallback_voice: str = "bm_george"  # Kokoro, offline: takes over if ElevenLabs fails
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -91,6 +99,7 @@ class Settings(BaseSettings):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     files: FilesSettings = Field(default_factory=FilesSettings)
     notion: NotionSettings = Field(default_factory=NotionSettings)
+    voice: VoiceSettings = Field(default_factory=VoiceSettings)
     data_dir: Path = PROJECT_ROOT / "data"
 
     @classmethod
@@ -113,9 +122,9 @@ SECRET_PURPOSES = {
     "firecrawl_api_key": "Web search agent (Phase 4)",
     "google_client_id": "Google sign-in for the Calendar agent (Phase 5)",
     "google_client_secret": "Google sign-in for the Calendar agent (Phase 5)",
-    "deepgram_api_key": "Speech-to-text (Phase 7)",
-    "eleven_api_key": "Jarvis's ElevenLabs voice (Phase 7)",
-    "elevenlabs_voice_id": "Which ElevenLabs voice (Phase 7)",
+    "deepgram_api_key": "Voice: speech-to-text (Deepgram Flux)",
+    "eleven_api_key": "Voice: Jarvis's ElevenLabs voice",
+    "elevenlabs_voice_id": "Voice: which ElevenLabs voice",
 }
 
 

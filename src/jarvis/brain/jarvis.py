@@ -8,7 +8,9 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 
 from jarvis.agents.registry import agent_tools
-from jarvis.brain.memory import RepairInterruptedToolCalls, summarize_long_days
+from jarvis.brain.approvals import Approvals
+from jarvis.brain.brain import Brain
+from jarvis.brain.memory import Memory, RepairInterruptedToolCalls, summarize_long_days
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
 from jarvis.prompts import load_prompt
@@ -41,3 +43,10 @@ def build_jarvis(
         store=store,  # long-term facts
         name="jarvis",
     )
+
+
+def make_brain(settings: Settings, memory: Memory) -> Brain:
+    """Jarvis behind the Brain doorway, as text chat and the voice agent both use him."""
+    jarvis = build_jarvis(settings, checkpointer=memory.checkpointer, store=memory.store)
+    approvals = Approvals(make_model(settings.models.approvals))
+    return Brain(jarvis, new_day_hour=settings.memory.new_day_hour, approvals=approvals)
