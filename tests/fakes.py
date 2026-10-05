@@ -1,5 +1,7 @@
-"""Stand-ins for the model, the web, Google, Notion and the Keychain: tests run free and offline."""
+"""Stand-ins for the model, the web, Google, Notion, the Keychain and the voice services: tests
+run free and offline."""
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Iterator
@@ -22,6 +24,8 @@ from langchain_core.messages import AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableLambda
 from livekit import rtc
+from livekit.agents import stt
+from livekit.agents.voice import io
 from pydantic import Field
 
 
@@ -223,6 +227,13 @@ HOLIDAYS = {
     "timeZone": ZONE,
 }
 UNTICKED = {"id": "old@group.calendar.google.com", "summary": "Old project", "accessRole": "owner"}
+VACATION = {
+    "id": "vacation456@group.calendar.google.com",
+    "summary": "Jamie + Alex Vacation TRIPPPP",
+    "selected": True,
+    "accessRole": "owner",
+    "timeZone": ZONE,
+}
 CALENDARS = [MAIN_CALENDAR, WORK, HOLIDAYS, UNTICKED]
 
 DENTIST = {
@@ -277,6 +288,7 @@ class FakeGoogleCalendar:
         self.reads: list[tuple[str, str, str, str | None]] = []
         self.created: list[tuple[str, dict]] = []
         self.updated: list[tuple[str, str, dict]] = []
+        self.moved: list[tuple[str, str, str]] = []  # (from calendar, event id, to calendar)
 
     async def calendars(self) -> list[dict]:
         return self.calendar_list
@@ -305,6 +317,73 @@ class FakeGoogleCalendar:
     async def update(self, calendar_id: str, event_id: str, changes: dict) -> dict:
         self.updated.append((calendar_id, event_id, changes))
         return {**(await self.event(calendar_id, event_id) or {}), **changes}
+
+    async def move(self, calendar_id: str, event_id: str, destination_id: str) -> dict:
+        self.moved.append((calendar_id, event_id, destination_id))
+        event = await self.event(calendar_id, event_id)
+        assert event is not None, "moving an event that isn't there"
+        self.by_calendar[calendar_id].remove(event)
+        self.by_calendar.setdefault(destination_id, []).append(event)
+        return event
+
+
+# --- Google Tasks ---
+MY_TASKS = {"id": "list-main", "title": "My Tasks"}
+SHOPPING = {"id": "list-shopping", "title": "Shopping"}
+CANDLES = {
+    "id": "task-candles",
+    "title": "Buy candles",
+    "status": "needsAction",
+    "due": "2026-10-09T00:00:00.000Z",
+}
+PLUMBER = {
+    "id": "task-plumber",
+    "title": "Call the plumber",
+    "status": "needsAction",
+    "notes": "Leak under the sink",
+}
+TAXES = {
+    "id": "task-taxes",
+    "title": "File taxes",
+    "status": "completed",
+    "due": "2026-04-30T00:00:00.000Z",
+    "completed": "2026-04-28T10:00:00.000Z",
+}
+BLANK = {"id": "task-blank", "title": "", "status": "needsAction"}  # an empty line in the list
+MILK = {
+    "id": "task-milk",
+    "title": "Milk",
+    "status": "needsAction",
+    "due": "2026-10-06T00:00:00.000Z",
+}
+
+
+class FakeGoogleTasks:
+    """Stands in for `GoogleTasks`: task lists in memory, plus a record of writes."""
+
+    def __init__(self) -> None:
+        self.task_lists = [MY_TASKS, SHOPPING]
+        self.by_list = {MY_TASKS["id"]: [CANDLES, PLUMBER, TAXES, BLANK], SHOPPING["id"]: [MILK]}
+        self.created: list[tuple[str, dict]] = []
+        self.updated: list[tuple[str, str, dict]] = []
+
+    async def lists(self) -> list[dict]:
+        return self.task_lists
+
+    async def tasks(self, list_id: str, include_done: bool) -> list[dict]:
+        found = self.by_list.get(list_id, [])
+        return [t for t in found if include_done or t.get("status") != "completed"]
+
+    async def task(self, list_id: str, task_id: str) -> dict | None:
+        return next((t for t in self.by_list.get(list_id, []) if t["id"] == task_id), None)
+
+    async def create(self, list_id: str, task: dict) -> dict:
+        self.created.append((list_id, task))
+        return {"id": f"task-new-{len(self.created)}", "status": "needsAction", **task}
+
+    async def update(self, list_id: str, task_id: str, changes: dict) -> dict:
+        self.updated.append((list_id, task_id, changes))
+        return {**(await self.task(list_id, task_id) or {}), **changes}
 
 
 # --- Approvals ---
@@ -461,3 +540,107 @@ class FakeSpeech:
             samples = FakeVoice.SAMPLE_RATE // 100
             frame = rtc.AudioFrame(b"\x01\x00" * samples, FakeVoice.SAMPLE_RATE, 1, samples)
             yield SimpleNamespace(frame=frame)
+
+
+class FakeEars:
+    """Stands in for a Deepgram Flux stream: keeps the audio it's given; tests decide what it
+    "hears" (`hears`) and whether it breaks (`fail`)."""
+
+    def __init__(self) -> None:
+        self.pushed: list[rtc.AudioFrame] = []
+        self.start_time_offset = 0.0
+        self.closed = False
+        self.events: asyncio.Queue[stt.SpeechEvent | Exception | None] = asyncio.Queue()
+
+    def push_frame(self, frame: rtc.AudioFrame) -> None:
+        if self.closed:
+            raise RuntimeError("The stream is closed.")
+        self.pushed.append(frame)
+
+    def hears(self, *events: stt.SpeechEvent) -> None:
+        for event in events:
+            self.events.put_nowait(event)
+
+    def fail(self, error: Exception) -> None:
+        self.events.put_nowait(error)
+
+    async def aclose(self) -> None:
+        self.closed = True
+        self.events.put_nowait(None)
+
+    def __aiter__(self) -> "FakeEars":
+        return self
+
+    async def __anext__(self) -> stt.SpeechEvent:
+        event = await self.events.get()
+        if event is None:
+            raise StopAsyncIteration
+        if isinstance(event, Exception):
+            self.closed = True
+            raise event
+        return event
+
+
+class FakeSpotter:
+    """Stands in for the wake-word models: a test frame carries the words "said" in it."""
+
+    def hear(self, frame: rtc.AudioFrame) -> set[str]:
+        return set(frame.userdata.get("words", ()))
+
+
+class FakeFlux(stt.STT):
+    """Stands in for Deepgram Flux inside a LiveKit session: each stream the gate opens is a
+    `FakeEars`, kept in `streams`."""
+
+    def __init__(self) -> None:
+        super().__init__(capabilities=stt.STTCapabilities(streaming=True, interim_results=True))
+        self.streams: list[FakeEars] = []
+
+    async def _recognize_impl(self, *args: Any, **kwargs: Any) -> stt.SpeechEvent:
+        raise NotImplementedError("Flux only streams.")
+
+    def stream(self, **kwargs: Any) -> FakeEars:  # type: ignore[override]
+        self.streams.append(FakeEars())
+        return self.streams[-1]
+
+
+class FakeMic(io.AudioInput):
+    """Your microphone inside a LiveKit session: tests `say` frames into it."""
+
+    def __init__(self) -> None:
+        super().__init__(label="Fake mic")
+        self.frames: asyncio.Queue[rtc.AudioFrame] = asyncio.Queue()
+
+    def say(self, *frames: rtc.AudioFrame) -> None:
+        for frame in frames:
+            self.frames.put_nowait(frame)
+
+    async def __anext__(self) -> rtc.AudioFrame:
+        return await self.frames.get()
+
+
+# Mic frames and Flux's events, for the voice tests.
+FRAME = 1 / 64  # seconds of audio per test frame (exact in binary, so sums of frames are too)
+
+
+def frame(*words: str) -> rtc.AudioFrame:
+    """1/64 s of silent mic audio, in which the fake spotter "hears" `words`."""
+    return rtc.AudioFrame(bytes(500), 16000, 1, 250, userdata={"words": words})
+
+
+def start() -> stt.SpeechEvent:
+    return stt.SpeechEvent(type=stt.SpeechEventType.START_OF_SPEECH)
+
+
+def interim(text: str) -> stt.SpeechEvent:
+    kind = stt.SpeechEventType.INTERIM_TRANSCRIPT
+    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text)])
+
+
+def final(text: str) -> stt.SpeechEvent:
+    kind = stt.SpeechEventType.FINAL_TRANSCRIPT
+    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text)])
+
+
+def end() -> stt.SpeechEvent:
+    return stt.SpeechEvent(type=stt.SpeechEventType.END_OF_SPEECH)

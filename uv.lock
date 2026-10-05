@@ -888,6 +888,8 @@ dependencies = [
     { name = "langsmith" },
     { name = "livekit-agents", extra = ["deepgram", "elevenlabs"] },
     { name = "pydantic-settings" },
+    { name = "pymicro-wakeword" },
+    { name = "pyopen-wakeword" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "typer" },
@@ -915,6 +917,8 @@ requires-dist = [
     { name = "langsmith", specifier = ">=0.14.4" },
     { name = "livekit-agents", extras = ["deepgram", "elevenlabs"], specifier = ">=1.8.4" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
+    { name = "pymicro-wakeword", specifier = ">=2.5.0" },
+    { name = "pyopen-wakeword", specifier = ">=1.1.0" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "typer", specifier = ">=0.27.2" },
@@ -2145,6 +2149,50 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pymicro-features"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/46/328092b4df890385594cf3d3e6015da72d77f63c58d3057276ac2353e891/pymicro_features-2.0.2.tar.gz", hash = "sha256:0d0bed7843ec78b6ced82d1a2dcddeb4fe5df61b3af80a281d0868c8e279c727", size = 54713, upload-time = "2025-10-09T21:14:13.135Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/b1/511149e0ab3b244eedd8ba0d4f5293e2f1558f9e06a5c8724efb265e467b/pymicro_features-2.0.2-cp39-abi3-macosx_10_13_universal2.whl", hash = "sha256:a8f8b115cf825c44c7a1fddc0af154e2fb0c52f8d1a4597e1f1a113b91ff8324", size = 42354, upload-time = "2025-10-09T21:14:08.552Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/34/c52065f422c009d99c434fb68918142b815055942fcb57c9533810a22080/pymicro_features-2.0.2-cp39-abi3-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:acead36386b42934e620f57d7481177ba461dde247cccef6a846f5831805e6c7", size = 116415, upload-time = "2025-10-09T21:14:09.6Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/30/a31c5dc56015e55f897d0beb71447f1e10f0062067258856f3735ede133a/pymicro_features-2.0.2-cp39-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:65a76a7c7851ee0dd6083dda56b835ab9dc6eddeaf11b34461795758de846d0f", size = 119607, upload-time = "2025-10-09T21:14:10.734Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/22/577100459a7d3e7f5b3c5315c6c546a7980bf711371ca36398f440a1aee4/pymicro_features-2.0.2-cp39-abi3-win_amd64.whl", hash = "sha256:e76b656ce6a2eab9571657bbecaf17a5c07830306f9b544fbbea16c567bd78fb", size = 22695, upload-time = "2025-10-09T21:14:12.152Z" },
+]
+
+[[package]]
+name = "pymicro-wakeword"
+version = "2.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pymicro-features" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3b/93/9e8a000f8f8bda01ec53534bdf07c3413ffd659352a0117ac106f9beff7e/pymicro_wakeword-2.5.0.tar.gz", hash = "sha256:2355c1cb3fbfe4a59f4eccd6f17bd3eca260f7c6fb701fe3c44ccc98d49dd19e", size = 2110020, upload-time = "2026-09-17T21:27:03.156Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/62/b8/209abb67371d296964899e6ff867f93fc525ef185ac3b800e33d55fc8a3a/pymicro_wakeword-2.5.0-py3-none-macosx_15_0_universal2.whl", hash = "sha256:950336248aefc9e7d0334f1894f878a3e319e2850b165d592c69b48bc706c823", size = 1728962, upload-time = "2026-09-17T21:26:54.144Z" },
+    { url = "https://files.pythonhosted.org/packages/61/c2/764792cf610550c6e8dc06cc7ece77c0a3020054c029c907c2bbdda526f3/pymicro_wakeword-2.5.0-py3-none-manylinux_2_35_aarch64.whl", hash = "sha256:6c75b77c936efd19b8c35a094cb7e3fdbd4ebcd0f63635a0851ce591990829f2", size = 1611022, upload-time = "2026-09-17T21:26:55.969Z" },
+    { url = "https://files.pythonhosted.org/packages/30/1e/11cf9d78df0a8881bc75de9b322f901403e1315cae9465c9aafc0f9c91ef/pymicro_wakeword-2.5.0-py3-none-manylinux_2_35_armv7l.whl", hash = "sha256:af92b862fe0488fba7422b9819b1a8c88781b2f90fb3e4b7f1dcfd1d90a6b69b", size = 1838144, upload-time = "2026-09-17T21:26:57.793Z" },
+    { url = "https://files.pythonhosted.org/packages/59/db/651fffa65447022403cb44968a2e2a717c31a33ebe17e77e1e96a6289623/pymicro_wakeword-2.5.0-py3-none-manylinux_2_35_x86_64.whl", hash = "sha256:3869f536402b1254e3be3549d3a462ecd6ed21ce2c3e77ec8eb501c3c700417c", size = 2114958, upload-time = "2026-09-17T21:26:59.591Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/e5/e7d41de24d1e492d2687084febbaf003f2119700383cd7615cf18cab7fb1/pymicro_wakeword-2.5.0-py3-none-win_amd64.whl", hash = "sha256:e518dd2256436e57134cabb91b83a0b434aff6c34fdbada2841ff4b1f0f20ff5", size = 1942762, upload-time = "2026-09-17T21:27:01.391Z" },
+]
+
+[[package]]
+name = "pyopen-wakeword"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/3e/37c8601f87173acfed77a3133c69eb350d2563f41174d70129ff51e6b297/pyopen_wakeword-1.1.0.tar.gz", hash = "sha256:080c0bda64d9aa4dd254413ba6fa417bd090c566c0610ebbb571d81f27851602", size = 7122877, upload-time = "2025-10-28T15:04:53.091Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/0a/45c9c7c1405f13e632d694ed1fac48e8c9f1421eed930a8cb1afc5eda17e/pyopen_wakeword-1.1.0-py3-none-macosx_15_0_universal2.whl", hash = "sha256:81f31adc31ba9e85b5c83f1b16f571f630ad867710f111443ecf42523f73fe08", size = 6746161, upload-time = "2025-10-28T15:04:45.586Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/74/746a3b3f81e2c1c69fc736c9e630f983797e413f7f58c1eac59d66d6687d/pyopen_wakeword-1.1.0-py3-none-manylinux_2_35_aarch64.whl", hash = "sha256:32a865123ebcc270ce6408b675456c3aecd8a6f0ddfe6311680616c9c01f990a", size = 6628214, upload-time = "2025-10-28T15:04:47.55Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/d7/228edc51d9b35b9d46cf685509e79144262ffd8756a49243a27da3302059/pyopen_wakeword-1.1.0-py3-none-manylinux_2_35_x86_64.whl", hash = "sha256:754347a59de2b3d378a0cbc404a8b41164036e74fa1c185f88056974e4bfb6b4", size = 7132152, upload-time = "2025-10-28T15:04:49.042Z" },
+    { url = "https://files.pythonhosted.org/packages/69/d1/d788a1edf7c200b73c3a8b0cc73ebd8b1013e352222fb8521415dbb7e2c8/pyopen_wakeword-1.1.0-py3-none-win_amd64.whl", hash = "sha256:93c4ba03b434fb4130282a254000e58e29cf3dc49b610ce7e998abc785a27a90", size = 6997274, upload-time = "2025-10-28T15:04:51.182Z" },
 ]
 
 [[package]]

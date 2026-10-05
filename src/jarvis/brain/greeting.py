@@ -3,6 +3,7 @@
 from datetime import datetime
 
 FILLER = "Right away, sir."  # while a sub-agent works: chat prints it, voice says it
+SIR = "Sir?"  # voice: you said only "Hey Jarvis", so he lets you know he's listening
 
 NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"]
 

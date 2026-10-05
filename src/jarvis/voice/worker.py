@@ -39,9 +39,9 @@ TURNS = TurnHandlingOptions(
     # Off: it starts answering before you've finished and throws wrong guesses away. Here each
     # guess would be a real Brain turn: saved to memory, maybe a sub-agent run.
     preemptive_generation={"enabled": False},
-    # Stop the moment you talk over him. LiveKit's default "pauses" him and resumes if no words
-    # follow, but the console can't pause (it says it can, then does nothing), so he talked on
-    # until you finished. Phase 8 lets only "Jarvis…", "stop" or "wait" interrupt.
+    # Stop the moment LiveKit hears you over him; the gate (gate.py) only lets "Jarvis…",
+    # "stop" and "wait" through while he talks. LiveKit's default "pauses" him and resumes if no
+    # words follow, but the console can't pause (it says it can, then does nothing).
     interruption={"resume_false_interruption": False},
 )
 
@@ -71,6 +71,8 @@ async def jarvis_session(ctx: JobContext) -> None:
     ctx.add_shutdown_callback(lambda: cancel_and_wait(getting_ready))
     session = AgentSession(
         stt=make_ears(settings),
+        # No voice detector: it would let any voice (or his echo) stop him. The gate decides.
+        vad=None,
         llm=BrainLLM(),  # a stand-in: replies come from the Brain, in JarvisAgent.llm_node
         # Kokoro speaks if ElevenLabs fails. Switch at once: retrying first meant ~6 s of silence
         # (measured); LiveKit keeps retrying ElevenLabs in the background and switches back.

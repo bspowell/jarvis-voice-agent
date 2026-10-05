@@ -69,6 +69,7 @@ class VoiceSettings(BaseModel):
     stt_model: str = "flux-general-en"  # Deepgram Flux: your words, and when you've finished
     tts_model: str = "eleven_v4_turbo"  # ElevenLabs model for his voice (ELEVENLABS_VOICE_ID)
     fallback_voice: str = "bm_george"  # Kokoro, offline: takes over if ElevenLabs fails
+    follow_up_seconds: float = Field(default=6.0, gt=0)  # after he answers: no "Hey Jarvis" needed
 
 
 class Settings(BaseSettings):

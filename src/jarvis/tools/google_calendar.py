@@ -1,10 +1,11 @@
-"""Google Calendar tools for the Calendar agent: read every calendar you see; add and change events.
+"""Google Calendar tools for the Calendar agent: read every calendar you see; add, change and
+move events.
 
 Plain HTTPS calls to Google's Calendar API, signed with the access token from your Google
 sign-in (`auth/google.py`). There's no delete tool. The two write tools never run on the
 model's say-so: the Calendar agent pauses before each one until you approve
 (`agents/calendar.py`), and `describe_new_event` / `describe_event_change` below say exactly
-what you're approving.
+what you're approving. A change that changes nothing is never put to you (`ask_about_change`).
 
 Times the model sends are local wall-clock times ("2026-10-05T12:00"); Google is told the
 calendar's time zone, so daylight-saving changes are its problem, not the model's.
@@ -20,7 +21,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
-from langchain.agents.middleware import AgentState
+from langchain.agents.middleware import AgentState, ToolCallRequest
 from langchain.tools import tool
 from langchain_core.messages import AnyMessage, ToolCall, ToolMessage
 from langgraph.runtime import Runtime
@@ -34,6 +35,10 @@ MAX_EVENTS = 50  # a day or a week rarely holds more; keeps the agent's reading 
 DEFAULT_LENGTH = timedelta(hours=1)  # an event with no end time
 ONE_DAY = timedelta(days=1)
 MAIN = "main"  # what the tools call your primary calendar
+NOTHING_TO_CHANGE = (
+    "Nothing to change: pass a new title, start, end, location or description, or "
+    "move_to_calendar to put it on another calendar."
+)
 WRITABLE = {"owner", "writer", "writerWithoutPrivateAccess"}
 
 
@@ -42,7 +47,8 @@ WRITABLE = {"owner", "writer", "writerWithoutPrivateAccess"}
 async def list_events(
     start_date: str, end_date: str | None = None, search: str | None = None
 ) -> dict[str, Any]:
-    """List the user's events between two dates, soonest first, from every calendar they see.
+    """List the user's events between two dates, soonest first, from every calendar they see,
+    and the exact names of the calendars that can be changed.
 
     Args:
         start_date: First day, e.g. "2026-10-05".
@@ -82,6 +88,7 @@ async def create_event(
 async def update_event(
     event_id: str,
     calendar: str | None = None,
+    move_to_calendar: str | None = None,
     title: str | None = None,
     start: str | None = None,
     end: str | None = None,
@@ -92,7 +99,8 @@ async def update_event(
 
     Args:
         event_id: The event's id, from list_events.
-        calendar: Its calendar's name, as list_events shows it. Leave out for the main one.
+        calendar: The calendar it's on now, as list_events shows it. Leave out for the main one.
+        move_to_calendar: Another calendar to put it on, by the name list_events shows.
         title: New name.
         start: New local start, e.g. "2026-10-05T15:00". Alone, it moves the event and keeps
             its length.
@@ -102,7 +110,15 @@ async def update_event(
     """
     async with calendar_client() as client:
         return await change_event(
-            client, event_id, calendar, title, start, end, location, description
+            client,
+            event_id,
+            calendar,
+            title,
+            start,
+            end,
+            location,
+            description,
+            move_to=move_to_calendar,
         )
 
 
@@ -166,6 +182,11 @@ class GoogleCalendar:
         path = f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}"
         return await self.call("PATCH", path, json=changes)
 
+    async def move(self, calendar_id: str, event_id: str, destination_id: str) -> dict[str, Any]:
+        """Move an event to another calendar, whole: Google keeps its times, guests and notes."""
+        path = f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}/move"
+        return await self.call("POST", path, params={"destination": destination_id})
+
 
 @asynccontextmanager
 async def calendar_client() -> AsyncIterator[GoogleCalendar]:
@@ -207,6 +228,8 @@ async def find_events(
     result: dict[str, Any] = {"time_zone": zone.key, "events": [e for _, e in events[:MAX_EVENTS]]}
     if len(events) > MAX_EVENTS:
         result["more_not_shown"] = len(events) - MAX_EVENTS
+    # Names to write with: the user says "the vacation one", Google knows "Jamie + Alex Vacation…"
+    result["calendars_you_can_change"] = writable_names(shown)
     return result
 
 
@@ -263,6 +286,10 @@ def calendar_name(entry: dict[str, Any]) -> str:
     return entry.get("summaryOverride") or entry.get("summary") or entry["id"]
 
 
+def writable_names(calendars: Sequence[dict[str, Any]]) -> list[str]:
+    return [calendar_name(c) for c in calendars if c.get("accessRole") in WRITABLE]
+
+
 def find_calendar(calendars: Sequence[dict[str, Any]], name: str | None) -> dict[str, Any] | None:
     """A calendar by the name list_events shows; no name (or "main") means your primary one."""
     wanted = (name or MAIN).strip().lower()
@@ -286,7 +313,8 @@ def writable_calendar(
     """The calendar to write to, or None and the reason it can't be used."""
     entry = find_calendar(calendars, name)
     if entry is None:
-        return None, f"No calendar called {name!r}."
+        names = ", ".join(writable_names(shown_calendars(calendars)))
+        return None, f"No calendar called {name!r}. Calendars you can change: {names}."
     if entry.get("accessRole") not in WRITABLE:
         return None, f"The {calendar_name(entry)!r} calendar is read-only."
     return entry, None
@@ -329,16 +357,23 @@ async def change_event(
     end: str | None,
     location: str | None,
     description: str | None,
+    *,
+    move_to: str | None = None,
 ) -> dict[str, Any]:
     calendars = await calendar.calendars()
-    target, problem = writable_calendar(calendars, calendar_label)
-    if target is None:
+    source, problem = writable_calendar(calendars, calendar_label)
+    if source is None:
         return {"error": problem}
-    current = await calendar.event(target["id"], event_id)
+    current = await calendar.event(source["id"], event_id)
     if current is None:
         return {
-            "error": f"No event with id {event_id!r} on the {calendar_name(target)!r} calendar."
+            "error": f"No event with id {event_id!r} on the {calendar_name(source)!r} calendar."
         }
+    target = source
+    if move_to:
+        target, problem = writable_calendar(calendars, move_to)
+        if target is None:
+            return {"error": problem}
     zone = ZoneInfo(target.get("timeZone") or main_time_zone(calendars))
     changes: dict[str, Any] = {}
     if title:
@@ -352,9 +387,14 @@ async def change_event(
             changes |= new_times(current, start, end, zone)
         except ValueError as error:
             return {"error": str(error)}
-    if not changes:
-        return {"error": "Nothing to change: pass at least one new value."}
-    updated = await calendar.update(target["id"], event_id, changes)
+    moving = target["id"] != source["id"]
+    if not changes and not moving:
+        return {"error": NOTHING_TO_CHANGE}
+    updated = current
+    if moving:  # first, so a new time is set where the event now lives
+        updated = await calendar.move(source["id"], event_id, target["id"])
+    if changes:
+        updated = await calendar.update(target["id"], updated["id"], changes)
     return {"updated": compact_event(updated, target, zone)}
 
 
@@ -478,7 +518,22 @@ def describe_event_change(tool_call: ToolCall, state: AgentState, runtime: Runti
     args = tool_call["args"]
     listed = listed_event(state["messages"], args.get("event_id", ""))
     target = f"“{listed['title']}” ({listed['when']})" if listed else "an event"
+    return f"Change {target}: {'; '.join(requested_changes(args, listed))}."
+
+
+def ask_about_change(request: ToolCallRequest) -> bool:
+    """Ask only about a change that changes something. An empty one would be refused anyway,
+    and a question about nothing invites the asker to guess (once, it guessed "delete").
+    (Safe as a `when` check: the arguments can't change between asking and running.)"""
+    return bool(requested_changes(request.tool_call["args"]))
+
+
+def requested_changes(args: dict[str, Any], listed: dict[str, Any] | None = None) -> list[str]:
+    """What update_event's arguments change, in words; empty if nothing."""
     changes = []
+    if args.get("move_to_calendar"):
+        source = f" from your {listed['calendar']} calendar" if listed else ""
+        changes.append(f"move it{source} to your {args['move_to_calendar']} calendar")
     if args.get("title"):
         changes.append(f"rename it “{args['title']}”")
     if args.get("start") and args.get("end"):
@@ -491,7 +546,7 @@ def describe_event_change(tool_call: ToolCall, state: AgentState, runtime: Runti
         changes.append(f"set the place to {args['location']}")
     if args.get("description"):
         changes.append("replace its notes")
-    return f"Change {target}: {'; '.join(changes) or 'nothing'}."
+    return changes
 
 
 def listed_event(messages: Sequence[AnyMessage], event_id: str) -> dict[str, Any] | None:

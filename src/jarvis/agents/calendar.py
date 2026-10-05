@@ -1,8 +1,9 @@
-"""The Calendar agent: Jarvis's diary keeper, a sub-agent wrapped as one tool.
+"""The Calendar agent: Jarvis's diary keeper (Google Calendar and Google Tasks), a sub-agent
+wrapped as one tool.
 
 Like Search, it has its own model, prompt and tools, and Jarvis hears only its short report.
 Unlike Search, it can change things, so every write waits for your OK:
-`HumanInTheLoopMiddleware` pauses the run just before `create_event` or `update_event` would
+`HumanInTheLoopMiddleware` pauses the run just before a write tool (an event or a task) would
 run (a LangGraph interrupt). The pause travels up through Jarvis's `calendar_agent` tool to
 `Brain`, which asks you "Shall I…?" and resumes the run with your answer.
 
@@ -36,12 +37,24 @@ from jarvis.tools.errors import explain_tool_error
 from jarvis.tools.google_calendar import (
     TIMEOUT_SECONDS,
     GoogleCalendar,
+    ask_about_change,
     create_event,
     describe_event_change,
     describe_new_event,
     list_events,
     shown_calendars,
     update_event,
+)
+from jarvis.tools.google_tasks import (
+    GoogleTasks,
+    TasksSwitchedOff,
+    add_task,
+    ask_about_new_task,
+    ask_about_task_change,
+    describe_new_task,
+    describe_task_change,
+    list_tasks,
+    update_task,
 )
 
 MAX_TOOL_CALLS = 8  # a busy request: list, propose, propose again after "make it 1 PM"…
@@ -51,12 +64,15 @@ SIGN_IN_FIRST = (
 )
 
 
-TOOLS = [list_events, create_event, update_event]  # no delete tool, on purpose
-READ_TOOLS = {list_events.name}  # every other tool changes your calendar, so it needs your OK
-# Each tool that changes your calendar, with the words that say what it's about to do.
+# No delete tools, on purpose.
+TOOLS = [list_events, create_event, update_event, list_tasks, add_task, update_task]
+READ_TOOLS = {list_events.name, list_tasks.name}  # every other tool changes things: needs your OK
+# Each tool that changes your calendar or tasks, with the words that say what it's about to do.
 WRITE_TOOLS = {
     create_event.name: needs_approval(describe_new_event),
-    update_event.name: needs_approval(describe_event_change),
+    update_event.name: needs_approval(describe_event_change, when=ask_about_change),
+    add_task.name: needs_approval(describe_new_task, when=ask_about_new_task),
+    update_task.name: needs_approval(describe_task_change, when=ask_about_task_change),
 }
 
 
@@ -82,8 +98,9 @@ def make_calendar_tool(settings: Settings) -> BaseTool:
 
     @tool(parse_docstring=True)
     async def calendar_agent(request: str, runtime: ToolRuntime) -> str:
-        """Ask your Calendar agent about the user's Google Calendar: what's on, when they're
-        free, or adding and changing events. It reports back briefly.
+        """Ask your Calendar agent about the user's Google Calendar and to-dos (Google Tasks):
+        what's on, when they're free, what's due, or adding and changing events and tasks.
+        It reports back briefly.
 
         Args:
             request: The user's request in full, with names, days and times as they said them,
@@ -119,6 +136,10 @@ def receipt_in(message: AnyMessage) -> str | None:
         if event := result.get(key):
             where = "" if event["calendar"] == "main" else f" ({event['calendar']} calendar)"
             return f"{done} “{event['title']}”, {event['when']}{where}"
+    for key, done in (("added_task", "added the task"), ("changed_task", "changed the task")):
+        if task := result.get(key):
+            due = f", due {task['due']}" if task.get("due") else ""
+            return f"{done} “{task['title']}”{due}{', done' if task.get('done') else ''}"
     return None
 
 
@@ -128,10 +149,13 @@ async def check_calendar(settings: Settings) -> str:
         raise RuntimeError(NOT_SET_UP)
     try:
         token = await access_token(settings)
-    except NotSignedIn:
-        raise RuntimeError(
-            "Not signed in to Google yet: ask about your calendar to sign in."
-        ) from None
+    except NotSignedIn as error:
+        raise RuntimeError(f"{error} Ask about your calendar to sign in.") from None
     async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as http:
         calendars = await GoogleCalendar(http, token).calendars()
-    return f"Google Calendar ready, {len(shown_calendars(calendars))} calendars."
+        try:
+            lists = len(await GoogleTasks(http, token).lists())
+            tasks = f"Tasks ready, {lists} list{'' if lists == 1 else 's'}"
+        except TasksSwitchedOff:
+            tasks = "Tasks switched off (turn on the Tasks API in Google Cloud)"
+    return f"Google Calendar ready, {len(shown_calendars(calendars))} calendars; {tasks}."

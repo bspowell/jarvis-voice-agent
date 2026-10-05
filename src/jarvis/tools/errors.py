@@ -11,11 +11,13 @@ from langchain.agents.middleware import ToolCallRequest
 from mcp.shared.exceptions import MCPError
 
 from jarvis.auth.store import NotSignedIn
+from jarvis.tools.google_tasks import TasksSwitchedOff
 
 # An online service answered, but with trouble: worth an apology, not a crash.
 SERVICE_ERRORS = (
     FirecrawlError,  # the search service: out of credits, rate-limited, page blocked…
     NotSignedIn,  # Google or Notion access removed mid-request
+    TasksSwitchedOff,  # Google Tasks not turned on for Jarvis's Google app
     TransportError,  # Google's sign-in service unreachable while renewing access
     MCPError,  # an MCP server (Notion) refused a request
     # A sub-agent's model, after its own retries: busy, down or unreachable.

@@ -34,6 +34,7 @@ def google_tokens(expires_in: timedelta = timedelta(hours=1)) -> dict:
         "token": "access-1",
         "refresh_token": "refresh-1",
         "expiry": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "scopes": SCOPES,
     }
 
 
@@ -48,6 +49,13 @@ def test_a_sign_in_lasts_30_days():
 def test_a_damaged_keychain_entry_counts_as_signed_out(keychain):
     keychain.set_password(KEYCHAIN_SERVICE, "google", "not json")
     assert SignInStore("google", remember_days=30).load() is None
+
+
+async def test_a_sign_in_from_before_tasks_asks_for_the_new_permission():
+    calendar_only = {**google_tokens(), "scopes": SCOPES[:2]}  # saved before Jarvis did tasks
+    google_store(SETTINGS).save(calendar_only)
+    with pytest.raises(NotSignedIn, match="one more Google permission"):
+        await access_token(SETTINGS)
 
 
 async def test_a_fresh_access_token_is_used_as_it_is():

@@ -28,12 +28,13 @@ SERVICE = "google"
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",  # see and edit events on all your calendars
     "https://www.googleapis.com/auth/calendar.calendarlist.readonly",  # which calendars you have
+    "https://www.googleapis.com/auth/tasks",  # see and edit your to-dos (Google Tasks)
 ]
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 REVOKE_URI = "https://oauth2.googleapis.com/revoke"
 SIGN_IN_TIMEOUT_SECONDS = 300  # stop waiting for the browser after five minutes
-SIGNED_IN_PAGE = "Jarvis is signed in to your Google Calendar. You can close this tab."
+SIGNED_IN_PAGE = "Jarvis is signed in to your Google Calendar and Tasks. You can close this tab."
 APP_FIELDS = ["client_id", "client_secret"]  # Jarvis's app (in .env), never stored with your tokens
 NOT_SET_UP = "Google sign-in isn't set up: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env."
 
@@ -74,7 +75,7 @@ def sign_in(settings: Settings) -> None:
         raise SignInFailed(f"Google said: {error.error}.") from error
     except Warning as error:  # how oauthlib reports a permission you unticked
         raise SignInFailed(
-            "Jarvis needs both calendar permissions. Sign in again and tick both boxes."
+            "Jarvis needs every permission it asks for. Sign in again and tick all the boxes."
         ) from error
     google_store(settings).save(tokens_of(credentials))
 
@@ -93,6 +94,8 @@ async def access_token(settings: Settings) -> str:
     saved = store.load()
     if saved is None:
         raise NotSignedIn("Not signed in to Google.")
+    if not set(SCOPES) <= set(saved.token.get("scopes") or []):  # Jarvis has learnt a new skill
+        raise NotSignedIn("Jarvis needs one more Google permission (Tasks): sign in again.")
     credentials = Credentials.from_authorized_user_info({**saved.token, **jarvis_app(settings)})
     if not credentials.valid:  # its hour is up
         try:

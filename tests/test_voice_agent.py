@@ -6,18 +6,21 @@ says, the filler, failures, unheard questions and sign-ins. The Brain itself has
 
 import asyncio
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
-from fakes import FakeVoice
+from fakes import FakeFlux, FakeMic, FakeSpotter, FakeVoice, end, final, frame, start
 from livekit.agents import AgentSession, ModelSettings, SpeechCreatedEvent, llm
 from livekit.agents.voice import SpeechHandle
 
-from jarvis.brain.greeting import FILLER
+from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
 from jarvis.events import Event, EventBus
 from jarvis.voice import jarvis_agent
 from jarvis.voice.jarvis_agent import SNAG, BrainLLM, JarvisAgent, your_words
 from jarvis.voice.phrases import Phrases
+from jarvis.voice.spotter import WAKE
+from jarvis.voice.worker import TURNS
 
 ASKS = object()  # in a script: the Brain has just asked "Shall I…?" (it waits for the answer)
 GREETING = "Good evening, sir. Three Agents all present and accounted for."
@@ -108,7 +111,7 @@ async def test_he_greets_you_from_a_recording_once_the_session_has_started(tmp_p
         assert said == []  # not while the session is still setting up its audio
         await agent.greet()
         assert said == ["say"]
-    assert set(agent.phrases.voice.lines) == {FILLER, GREETING}  # recorded for next time
+    assert set(agent.phrases.voice.lines) == {FILLER, SIR, GREETING}  # recorded for next time
 
 
 # --- "Shall I…?" only counts if you heard all of it ---
@@ -206,3 +209,71 @@ async def test_silence_gets_no_reply(tmp_path, words):
     agent = make_agent(brain, tmp_path)
     assert await say_to(agent, words) == ""
     assert brain.heard == []
+
+
+# --- Speaking to him: mic → wake-word gate → Flux → LiveKit's turns → the Brain ---
+@asynccontextmanager
+async def spoken_session(brain: FakeBrain, tmp_path, monkeypatch):
+    """A real LiveKit session that hears you: a fake mic and spotter, and a fake Flux."""
+    monkeypatch.setattr(jarvis_agent, "Spotter", FakeSpotter)
+    mic, flux = FakeMic(), FakeFlux()
+    async with AgentSession(
+        stt=flux,
+        vad=None,
+        llm=BrainLLM(),
+        turn_handling=TURNS,
+        session_close_transcript_timeout=0.1,  # on closing, don't wait 2 s for a last transcript
+    ) as session:
+        session.input.audio = mic
+        said = []  # what he said with `session.say` (fixed lines)
+        say = session.say
+        monkeypatch.setattr(session, "say", lambda text, **kw: said.append(text) or say(text, **kw))
+        agent = make_agent(brain, tmp_path)
+        turns = []  # your turns, as LiveKit hands them to the agent
+        completed = agent.on_user_turn_completed
+
+        async def on_user_turn_completed(turn_ctx, new_message):
+            turns.append(new_message.text_content)
+            await completed(turn_ctx, new_message)
+
+        monkeypatch.setattr(agent, "on_user_turn_completed", on_user_turn_completed)
+        await session.start(agent)
+        yield SimpleNamespace(mic=mic, flux=flux, said=said, turns=turns)
+
+
+async def wake_and_say(voice: SimpleNamespace, words: str) -> None:
+    """ "Hey Jarvis" (the spotter wakes him), then Flux hears `words` as one turn."""
+    if not voice.flux.streams or voice.flux.streams[-1].closed:
+        voice.mic.say(frame(), frame(WAKE))
+        await wait_until(lambda: voice.flux.streams and not voice.flux.streams[-1].closed)
+    voice.flux.streams[-1].hears(start(), final(words), end())
+
+
+async def test_hey_jarvis_and_your_question_reach_the_brain(tmp_path, monkeypatch):
+    brain = FakeBrain(["Sunny all day, sir."])
+    async with spoken_session(brain, tmp_path, monkeypatch) as voice:
+        await wake_and_say(voice, "Hey Jarvis, what's the weather?")
+        await wait_until(lambda: brain.heard)
+    assert brain.heard == ["Hey Jarvis, what's the weather?"]
+
+
+async def test_hey_jarvis_alone_gets_sir_and_the_brain_hears_nothing(tmp_path, monkeypatch):
+    brain = FakeBrain()
+    async with spoken_session(brain, tmp_path, monkeypatch) as voice:
+        await wake_and_say(voice, "Hey Jarvis.")
+        await wait_until(lambda: voice.said)
+    assert voice.said == [SIR]
+    assert brain.heard == []
+
+
+async def test_stop_alone_gets_no_reply(tmp_path, monkeypatch):
+    brain = FakeBrain(["Half past three, sir."])
+    async with spoken_session(brain, tmp_path, monkeypatch) as voice:
+        await wake_and_say(voice, "Stop.")
+        # LiveKit waits 0.3 s before closing a turn; words before then join it ("Stop. What's…")
+        await wait_until(lambda: voice.turns)
+        await wake_and_say(voice, "What's the time?")
+        await wait_until(lambda: brain.heard)
+    assert voice.turns == ["Stop.", "What's the time?"]
+    assert brain.heard == ["What's the time?"]  # "Stop." never reached him
+    assert voice.said == []

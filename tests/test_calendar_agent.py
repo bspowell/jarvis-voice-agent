@@ -8,20 +8,28 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 
-from fakes import FakeApprovalModel, FakeGoogleCalendar, FakeToolCallingModel
+from fakes import (
+    CALENDARS,
+    MAIN_CALENDAR,
+    VACATION,
+    FakeApprovalModel,
+    FakeGoogleCalendar,
+    FakeGoogleTasks,
+    FakeToolCallingModel,
+)
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from jarvis.agents import calendar
 from jarvis.agents.calendar import READ_TOOLS, SIGN_IN_FIRST, TOOLS, WRITE_TOOLS, make_calendar_tool
-from jarvis.auth.google import google_store
+from jarvis.auth.google import SCOPES, google_store
 from jarvis.brain.approvals import Approvals, Reading
 from jarvis.brain.brain import Brain
 from jarvis.brain.memory import INTERRUPTED, RepairInterruptedToolCalls
 from jarvis.config import Settings
 from jarvis.events import Event
-from jarvis.tools import google_calendar
+from jarvis.tools import google_calendar, google_tasks
 
 SETTINGS = Settings(
     _env_file=None,
@@ -43,19 +51,32 @@ def proposes_lunch(start: str, call_id: str) -> AIMessage:
 
 def signed_in() -> None:
     google_store(SETTINGS).save(
-        {"token": "access-1", "refresh_token": "refresh-1", "expiry": "2099-01-01T00:00:00Z"}
+        {
+            "token": "access-1",
+            "refresh_token": "refresh-1",
+            "expiry": "2099-01-01T00:00:00Z",
+            "scopes": SCOPES,
+        }
     )
 
 
-def brain_with(monkeypatch, *, jarvis_says, calendar_says, readings=(), questions=(QUESTION,)):
+def brain_with(
+    monkeypatch, *, jarvis_says, calendar_says, readings=(), questions=(QUESTION,), google=None
+):
     """The real calendar_agent tool, Jarvis's loop and Brain, with scripted models and fakes."""
-    google = FakeGoogleCalendar()
+    google = google or FakeGoogleCalendar()
 
     @asynccontextmanager
     async def google_client():
         yield google
 
+    @asynccontextmanager
+    async def tasks_client():
+        yield google.tasks
+
+    google.tasks = FakeGoogleTasks()  # the to-do lists, behind the same sign-in
     monkeypatch.setattr(google_calendar, "calendar_client", google_client)
+    monkeypatch.setattr(google_tasks, "tasks_client", tasks_client)
     calendar_model = FakeToolCallingModel(messages=iter(calendar_says))
     monkeypatch.setattr(calendar, "make_model", lambda name: calendar_model)
     jarvis = create_agent(
@@ -260,10 +281,120 @@ async def test_not_signed_in_shows_the_button_instead_of_starting_the_agent(monk
     assert messages[2].text == SIGN_IN_FIRST
 
 
-def test_every_tool_that_changes_the_calendar_needs_approval():
+def test_every_tool_that_changes_the_calendar_or_tasks_needs_approval():
     changes = {tool.name for tool in TOOLS} - READ_TOOLS
-    assert changes == set(WRITE_TOOLS) == {"create_event", "update_event"}
+    assert (
+        changes == set(WRITE_TOOLS) == {"create_event", "update_event", "add_task", "update_task"}
+    )
 
 
 def test_the_calendar_agent_cannot_delete():
     assert not any("delete" in tool.name or "remove" in tool.name for tool in TOOLS)
+
+
+# --- Moving an event to another calendar (the request that once reached you as "delete") ---
+MOVE_IT = "Move the dentist to the Jamie and Alex vacation calendar"
+
+
+def calendar_asked(request: str) -> AIMessage:
+    return AIMessage(
+        "", tool_calls=[ToolCall(name="calendar_agent", args={"request": request}, id="j1")]
+    )
+
+
+def updates(call_id: str, **args: str) -> AIMessage:
+    return AIMessage("", tool_calls=[ToolCall(name="update_event", args=args, id=call_id)])
+
+
+async def test_a_change_that_changes_nothing_is_never_put_to_you(monkeypatch):
+    signed_in()
+    question = "Shall I move the dentist to the Jamie and Alex vacation calendar?"
+    brain, google, calendar_model, approvals_model = brain_with(
+        monkeypatch,
+        google=FakeGoogleCalendar(calendars=[*CALENDARS, VACATION]),
+        jarvis_says=[calendar_asked(MOVE_IT), AIMessage("Moved, sir.")],
+        calendar_says=[
+            # What the agent sent before it could move events: a calendar named, nothing changed
+            updates("u1", event_id="ev-dentist", calendar=VACATION["summary"]),
+            updates("u2", event_id="ev-dentist", move_to_calendar=VACATION["summary"]),
+            AIMessage("Moved it."),
+        ],
+        readings=[Reading(decision="approve")],
+        questions=[question],
+    )
+    assert await say(brain, MOVE_IT) == question
+    [asked] = approvals_model.seen  # one question, about the real move only
+    assert "move it to your Jamie + Alex Vacation TRIPPPP calendar" in asked[-1].text
+    refused = calendar_model.seen[1][-1]  # the empty change ran unasked and was refused
+    assert refused.status == "error" or "No event" in refused.text
+
+    assert await say(brain, "Yes") == "Moved, sir."
+    assert google.moved == [(MAIN_CALENDAR["id"], "ev-dentist", VACATION["id"])]
+    assert (await report_to_jarvis(brain)).endswith(
+        "Saved in the calendar: changed “Dentist”, Mon 5 Oct 2026, 2 PM to 3 PM "
+        "(Jamie + Alex Vacation TRIPPPP calendar)."
+    )
+
+
+# --- Tasks (to-dos): the same rule as events ---
+async def test_a_new_task_waits_for_yes(monkeypatch):
+    signed_in()
+    request = "Remind me to book the vet by Saturday"
+    question = "Shall I add book the vet to your tasks, due Saturday the 10th?"
+    brain, google, _, approvals_model = brain_with(
+        monkeypatch,
+        jarvis_says=[calendar_asked(request), AIMessage("On your list, sir.")],
+        calendar_says=[
+            AIMessage(
+                "",
+                tool_calls=[
+                    ToolCall(
+                        name="add_task",
+                        args={"title": "Book the vet", "due": "2026-10-10"},
+                        id="t1",
+                    )
+                ],
+            ),
+            AIMessage("Added."),
+        ],
+        readings=[Reading(decision="approve")],
+        questions=[question],
+    )
+    assert await say(brain, request) == question
+    assert google.tasks.created == []  # paused before the write
+    [asked] = approvals_model.seen
+    assert "Add the task “Book the vet” to your tasks, due Sat 10 Oct 2026." in asked[-1].text
+
+    assert await say(brain, "Yes") == "On your list, sir."
+    assert len(google.tasks.created) == 1
+    assert (await report_to_jarvis(brain)).endswith(
+        "Saved in the calendar: added the task “Book the vet”, due Sat 10 Oct 2026."
+    )
+
+
+async def test_a_task_at_a_time_is_never_put_to_you_and_the_choice_goes_back(monkeypatch):
+    # Google would drop "7:30 AM" without a word: the agent hears why and asks task or event
+    signed_in()
+    request = "A task for tomorrow to start studying for the interview at 7:30 AM"
+    choice = "Tasks can't hold a time, sir. A task for tomorrow, or a 7:30 AM event?"
+    brain, google, calendar_model, approvals_model = brain_with(
+        monkeypatch,
+        jarvis_says=[calendar_asked(request), AIMessage(choice)],
+        calendar_says=[
+            AIMessage(
+                "",
+                tool_calls=[
+                    ToolCall(
+                        name="add_task",
+                        args={"title": "Start studying", "due": "2026-10-06T07:30"},
+                        id="t1",
+                    )
+                ],
+            ),
+            AIMessage("Tasks can't hold a time: a task due tomorrow, or an event at 7:30 AM?"),
+        ],
+    )
+    assert await say(brain, request) == choice
+    assert approvals_model.seen == []  # no question about a task whose time would vanish
+    assert google.tasks.created == []
+    assert "Tasks can't hold a time of day" in calendar_model.seen[1][-1].text

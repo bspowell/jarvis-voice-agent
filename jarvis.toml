@@ -29,3 +29,4 @@ open_pages = true              # show each page Jarvis reads or writes in the No
 stt_model = "flux-general-en"    # Deepgram Flux: turns your speech into text and hears when you've finished
 tts_model = "eleven_v4_turbo"    # ElevenLabs model speaking in your Jarvis voice (ELEVENLABS_VOICE_ID in .env)
 fallback_voice = "bm_george"     # Kokoro, offline: takes over if ElevenLabs fails
+follow_up_seconds = 6            # after he answers, keep talking without "Hey Jarvis" (10 s after "Shall I…?")

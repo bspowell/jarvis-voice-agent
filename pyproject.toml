@@ -24,6 +24,8 @@ dependencies = [
     "typer>=0.27.2",
     "livekit-agents[deepgram,elevenlabs]>=1.8.4",
     "kokoro-onnx>=0.6.1",
+    "pyopen-wakeword>=1.1.0",
+    "pymicro-wakeword>=2.5.0",
 ]
 
 [project.scripts]
