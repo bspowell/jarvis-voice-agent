@@ -1,4 +1,4 @@
-"""Stand-ins for the model and the web, so tests are fast, free and offline."""
+"""Stand-ins for the model, the web, Google and the Keychain: tests are fast, free and offline."""
 
 import re
 from collections.abc import Iterator
@@ -12,9 +12,12 @@ from firecrawl.v2.types import (
     SearchData,
     SearchResultWeb,
 )
+from keyring.backend import KeyringBackend
+from keyring.errors import PasswordDeleteError
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from langchain_core.runnables import RunnableLambda
 from pydantic import Field
 
 
@@ -168,3 +171,148 @@ LANGGRAPH_PAGES = {
     PYPI: "# langgraph 1.2.12\n\nReleased: Sep 30, 2026",
     BLOG: "# What's new\n\nDurable execution, faster streaming.",
 }
+
+
+# --- The Keychain ---
+class MemoryKeychain(KeyringBackend):
+    """Stands in for the macOS Keychain: entries live in a dictionary."""
+
+    priority = 1  # type: ignore[assignment]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entries: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.entries.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.entries[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        if self.entries.pop((service, username), None) is None:
+            raise PasswordDeleteError("No such entry.")
+
+
+# --- Google Calendar ---
+ZONE = "America/Vancouver"
+MAIN_CALENDAR = {
+    "id": "sean@example.com",
+    "summary": "sean@example.com",
+    "primary": True,
+    "selected": True,
+    "accessRole": "owner",
+    "timeZone": ZONE,
+}
+WORK = {
+    "id": "work123@group.calendar.google.com",
+    "summary": "Work",
+    "selected": True,
+    "accessRole": "writer",
+    "timeZone": ZONE,
+}
+HOLIDAYS = {
+    "id": "en.canadian#holiday@group.v.calendar.google.com",
+    "summary": "Holidays in Canada",
+    "selected": True,
+    "accessRole": "reader",
+    "timeZone": ZONE,
+}
+UNTICKED = {"id": "old@group.calendar.google.com", "summary": "Old project", "accessRole": "owner"}
+CALENDARS = [MAIN_CALENDAR, WORK, HOLIDAYS, UNTICKED]
+
+DENTIST = {
+    "id": "ev-dentist",
+    "summary": "Dentist",
+    "location": "Main Dental",
+    "start": {"dateTime": "2026-10-05T14:00:00-07:00"},
+    "end": {"dateTime": "2026-10-05T15:00:00-07:00"},
+}
+DECLINED = {
+    "id": "ev-declined",
+    "summary": "Optional sync",
+    "start": {"dateTime": "2026-10-05T11:00:00-07:00"},
+    "end": {"dateTime": "2026-10-05T11:30:00-07:00"},
+    "attendees": [{"email": "sean@example.com", "self": True, "responseStatus": "declined"}],
+}
+WORKING_FROM_HOME = {
+    "id": "ev-home",
+    "eventType": "workingLocation",
+    "summary": "Home",
+    "start": {"date": "2026-10-05"},
+    "end": {"date": "2026-10-06"},
+}
+STANDUP = {
+    "id": "ev-standup",
+    "summary": "Standup",
+    "start": {"dateTime": "2026-10-05T09:30:00-07:00"},
+    "end": {"dateTime": "2026-10-05T09:45:00-07:00"},
+}
+THANKSGIVING = {
+    "id": "ev-thanksgiving",
+    "summary": "Thanksgiving",
+    "start": {"date": "2026-10-12"},
+    "end": {"date": "2026-10-13"},
+}
+
+
+class FakeGoogleCalendar:
+    """Stands in for `GoogleCalendar`: calendars and events in memory, plus a record of writes."""
+
+    def __init__(self, calendars: list[dict] | None = None, events: dict | None = None) -> None:
+        self.calendar_list = calendars if calendars is not None else CALENDARS
+        self.by_calendar: dict[str, list[dict]] = (
+            events
+            if events is not None
+            else {
+                MAIN_CALENDAR["id"]: [DENTIST, DECLINED, WORKING_FROM_HOME],
+                WORK["id"]: [STANDUP],
+                HOLIDAYS["id"]: [THANKSGIVING],
+            }
+        )
+        self.reads: list[tuple[str, str, str, str | None]] = []
+        self.created: list[tuple[str, dict]] = []
+        self.updated: list[tuple[str, str, dict]] = []
+
+    async def calendars(self) -> list[dict]:
+        return self.calendar_list
+
+    async def events(
+        self, calendar_id: str, time_min: str, time_max: str, time_zone: str, search: str | None
+    ) -> list[dict]:
+        self.reads.append((calendar_id, time_min, time_max, search))
+
+        def day(event: dict) -> str:
+            return (event["start"].get("dateTime") or event["start"]["date"])[:10]
+
+        return [
+            e
+            for e in self.by_calendar.get(calendar_id, [])
+            if time_min[:10] <= day(e) < time_max[:10]
+        ]
+
+    async def event(self, calendar_id: str, event_id: str) -> dict | None:
+        return next((e for e in self.by_calendar.get(calendar_id, []) if e["id"] == event_id), None)
+
+    async def create(self, calendar_id: str, event: dict) -> dict:
+        self.created.append((calendar_id, event))
+        return {"id": f"ev-new-{len(self.created)}", **event}
+
+    async def update(self, calendar_id: str, event_id: str, changes: dict) -> dict:
+        self.updated.append((calendar_id, event_id, changes))
+        return {**(await self.event(calendar_id, event_id) or {}), **changes}
+
+
+# --- Approvals ---
+class FakeApprovalModel(FakeToolCallingModel):
+    """Scripted questions (streamed like any reply) and scripted readings of your answers."""
+
+    readings: list[Any] = Field(default_factory=list)  # what each answer "means", in order
+    read_requests: list[list[BaseMessage]] = Field(default_factory=list)
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> RunnableLambda:
+        def read(messages: list[BaseMessage]) -> Any:
+            self.read_requests.append(messages)
+            return self.readings.pop(0)
+
+        return RunnableLambda(read)

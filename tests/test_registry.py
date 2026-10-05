@@ -4,6 +4,7 @@ import pytest
 from fakes import FakeFirecrawl
 
 from jarvis.agents import registry
+from jarvis.agents.calendar import check_calendar
 from jarvis.agents.registry import SUB_AGENTS, Health, SubAgent, agent_tools, roll_call
 from jarvis.agents.search import NOT_SET_UP, check_search
 from jarvis.config import Settings
@@ -56,3 +57,11 @@ async def test_firecrawl_status_reports_credits():
     )
     with pytest.raises(RuntimeError, match="out of credits"):
         await firecrawl_status(FakeFirecrawl(credits=0))
+
+
+async def test_calendar_is_absent_until_google_is_set_up_and_signed_in():
+    with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_ID"):
+        await check_calendar(NO_KEYS)
+    set_up = Settings(_env_file=None, google_client_id="jarvis-app", google_client_secret="secret")
+    with pytest.raises(RuntimeError, match="Not signed in"):
+        await check_calendar(set_up)

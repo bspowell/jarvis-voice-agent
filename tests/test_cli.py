@@ -4,6 +4,8 @@ from typer.testing import CliRunner
 from jarvis import cli
 from jarvis.agents.registry import Health
 from jarvis.cli import app
+from jarvis.config import Settings
+from jarvis.events import Event
 
 runner = CliRunner()
 
@@ -34,3 +36,32 @@ def test_doctor_reports_sub_agent_health():
     result = runner.invoke(app, ["doctor"])
     assert "present" in result.output
     assert "480 credits left" in result.output
+
+
+def test_doctor_shows_the_google_sign_in():
+    result = runner.invoke(app, ["doctor"])
+    assert "Sign-ins" in result.output
+    assert "Google" in result.output
+
+
+def test_the_sign_in_button_can_be_skipped(monkeypatch):
+    monkeypatch.setattr(cli.console, "input", lambda prompt: "skip")
+    monkeypatch.setattr(cli.google, "sign_in", lambda settings: pytest.fail("signed in anyway"))
+    assert cli.sign_in_button(Settings(_env_file=None)) is False
+
+
+def test_enter_on_the_sign_in_button_signs_in(monkeypatch):
+    signed_in = []
+    monkeypatch.setattr(cli.console, "input", lambda prompt: "")
+    monkeypatch.setattr(cli.google, "sign_in", signed_in.append)
+    settings = Settings(_env_file=None)
+    assert cli.sign_in_button(settings) is True
+    assert signed_in == [settings]
+
+
+def test_sign_in_requests_are_shown_once():
+    requests = cli.SignInRequests()
+    requests.note(Event("sign_in_needed", {"service": "google"}))
+    requests.note(Event("agent_started", {"agent": "calendar"}))
+    assert requests.take() == {"google"}
+    assert requests.take() == set()

@@ -93,15 +93,17 @@ def summarize_long_days(
     )
 
 
-INTERRUPTED = "Cancelled: the user interrupted before this finished."
+# Also the result of a change you never approved: you moved on, so it was dropped unsaved.
+INTERRUPTED = "Cancelled: the user interrupted or moved on before this finished."
 
 
 class RepairInterruptedToolCalls(AgentMiddleware):
     """Repairs a saved conversation after a turn is cut off mid-tool.
 
     Ctrl+C (or "stop" in voice) can land after Jarvis asked for a tool but before it answered.
-    The saved thread then holds a tool call with no result, and the API rejects every later
-    request in that thread. At the start of each turn, this adds a "cancelled" result for it.
+    So can a new message while a change waits for your approval. The saved thread then holds a
+    tool call with no result, and the API rejects every later request in that thread. At the
+    start of each turn, this adds a "cancelled" result for it.
     """
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:

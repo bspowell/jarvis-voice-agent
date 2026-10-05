@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from langchain.tools import BaseTool
 
+from jarvis.agents.calendar import check_calendar, make_calendar_tool
 from jarvis.agents.search import check_search, make_search_tool
 from jarvis.config import Settings
 
@@ -25,7 +26,8 @@ class SubAgent:
 
 SUB_AGENTS = (
     SubAgent("search", make_tool=make_search_tool, check=check_search),
-    # Phase 5: calendar · Phase 6: notes
+    SubAgent("calendar", make_tool=make_calendar_tool, check=check_calendar),
+    # Phase 6: notes
 )
 
 

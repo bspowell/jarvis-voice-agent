@@ -395,6 +395,32 @@ wheels = [
 ]
 
 [[package]]
+name = "google-auth"
+version = "2.59.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyasn1-modules" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/e3/9f752a968e487fbc10b2c2a1dd561b62489f923972911009577bb88fe7bb/google_auth-2.59.1.tar.gz", hash = "sha256:ce50fc533ac02f489a2b183a0c156672c376ecb2091b1127bc7efba2975fff27", size = 384298, upload-time = "2026-09-30T17:26:25.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/03/38/311ac322f46ecd789f1342bb7adb0a14b940cf54b5db0e92d4f449aa6cf8/google_auth-2.59.1-py3-none-any.whl", hash = "sha256:89c3f931683a482ac97e61df7eb9da5e08a91703f3c752b2377d72cfb7d69e6a", size = 263519, upload-time = "2026-09-30T17:26:24.017Z" },
+]
+
+[[package]]
+name = "google-auth-oauthlib"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-auth" },
+    { name = "requests-oauthlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/40/1d7901e454831247e377ef3f642cb857cc0e82ec4d2380b7a148a48f20d1/google_auth_oauthlib-1.5.0.tar.gz", hash = "sha256:b351107c7dd9017f426cbb0272ea1bc04f469020fd18f4443c7d40362e0b1510", size = 23926, upload-time = "2026-09-29T19:25:56.699Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/bb/b5cc0757ad2f8068e7eb7180c37f82eb488627624c1b1214aa47ddbc032c/google_auth_oauthlib-1.5.0-py3-none-any.whl", hash = "sha256:71625fdea21c6c03217eb9ff13741c3096e6d257ebca0ad084dbd6e9f4aa4ef4", size = 20348, upload-time = "2026-09-29T19:25:31.842Z" },
+]
+
+[[package]]
 name = "googleapis-common-protos"
 version = "1.75.5"
 source = { registry = "https://pypi.org/simple" }
@@ -571,12 +597,47 @@ wheels = [
 ]
 
 [[package]]
+name = "jaraco-classes"
+version = "3.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "more-itertools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/c0/ed4a27bc5571b99e3cff68f8a9fa5b56ff7df1c2251cc715a652ddd26402/jaraco.classes-3.4.0.tar.gz", hash = "sha256:47a024b51d0239c0dd8c8540c6c7f484be3b8fcf0b2d85c13825780d3b3f3acd", size = 11780, upload-time = "2024-03-31T07:27:36.643Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/66/b15ce62552d84bbfcec9a4873ab79d993a1dd4edb922cbfccae192bd5b5f/jaraco.classes-3.4.0-py3-none-any.whl", hash = "sha256:f662826b6bed8cace05e7ff873ce0f9283b5c924470fe664fff1c2f00f581790", size = 6777, upload-time = "2024-03-31T07:27:34.792Z" },
+]
+
+[[package]]
+name = "jaraco-context"
+version = "6.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/50/4763cd07e722bb6285316d390a164bc7e479db9d90daa769f22578f698b4/jaraco_context-6.1.2.tar.gz", hash = "sha256:f1a6c9d391e661cc5b8d39861ff077a7dc24dc23833ccee564b234b81c82dfe3", size = 16801, upload-time = "2026-03-20T22:13:33.922Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/58/bc8954bda5fcda97bd7c19be11b85f91973d67a706ed4a3aec33e7de22db/jaraco_context-6.1.2-py3-none-any.whl", hash = "sha256:bf8150b79a2d5d91ae48629d8b427a8f7ba0e1097dd6202a9059f29a36379535", size = 7871, upload-time = "2026-03-20T22:13:32.808Z" },
+]
+
+[[package]]
+name = "jaraco-functools"
+version = "4.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "more-itertools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/1f/c23395957d41ccf27c4e535c3d334c4051e5395b3752057ba4cbaec35c56/jaraco_functools-4.6.0.tar.gz", hash = "sha256:880c577ec9720b3a052d5bc611fb9f2269b3d87902ef42440df443b88e443280", size = 20837, upload-time = "2026-07-14T01:28:02.544Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/36/ecc85bc96c273dc8a11273ed4782272975e6338d4a3e9228621175edf0e3/jaraco_functools-4.6.0-py3-none-any.whl", hash = "sha256:99e3dc0060c5cbe8fcd1cdb36258e2a65ca40f1566b2033b12abb1bb44dd3c30", size = 11677, upload-time = "2026-07-14T01:28:01.59Z" },
+]
+
+[[package]]
 name = "jarvis"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "firecrawl-py" },
+    { name = "google-auth-oauthlib" },
     { name = "httpx" },
+    { name = "keyring" },
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langgraph" },
@@ -599,7 +660,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "firecrawl-py", specifier = ">=4.46.2" },
+    { name = "google-auth-oauthlib", specifier = ">=1.5.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "keyring", specifier = ">=25.7.0" },
     { name = "langchain", specifier = ">=1.4.3" },
     { name = "langchain-anthropic", specifier = ">=1.7.5" },
     { name = "langgraph", specifier = ">=1.2.12" },
@@ -617,6 +680,15 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.16.10" },
+]
+
+[[package]]
+name = "jeepney"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/6f/357efd7602486741aa73ffc0617fb310a29b588ed0fd69c2399acbb85b0c/jeepney-0.9.0.tar.gz", hash = "sha256:cf0e9e845622b81e4a28df94c40345400256ec608d0e55bb8a3feaa9163f5732", size = 106758, upload-time = "2025-02-27T18:51:01.684Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/a3/e137168c9c44d18eff0376253da9f1e9234d0239e0ee230d2fee6cea8e55/jeepney-0.9.0-py3-none-any.whl", hash = "sha256:97e5714520c16fc0a45695e5365a2e11b81ea79bba796e26f9f1d178cb182683", size = 49010, upload-time = "2025-02-27T18:51:00.104Z" },
 ]
 
 [[package]]
@@ -684,6 +756,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/51/67/4e52d1ab98c8656a66ca1b0422af18da5a5525d6aa23c57be455bdcc6515/jsonschema_rs-0.44.1-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:2afe720dfa1f93235b78e812937039537b63bf4eab6ca3c9ecb7fd7ba08a865d", size = 3776400, upload-time = "2026-03-03T19:07:58.392Z" },
     { url = "https://files.pythonhosted.org/packages/d8/44/5cd424c80df74ad159aceaf59071f26a7b7decf925a952c8929c2e097375/jsonschema_rs-0.44.1-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:548a1f466ce5b904c9cc52eee8f887c3838377ed95f4525d0ee5896a321e89d5", size = 4144701, upload-time = "2026-03-03T19:08:00.476Z" },
     { url = "https://files.pythonhosted.org/packages/6f/4f/4f8c9a423b2f539b22f0fc314063b724da82df3116a57149c2d730943150/jsonschema_rs-0.44.1-cp313-cp313t-win_amd64.whl", hash = "sha256:8a758e422c4ec265e64f2232409ddc5976b28e94e84a8e5565a2bce169ab72e9", size = 3739509, upload-time = "2026-03-03T19:08:01.97Z" },
+]
+
+[[package]]
+name = "keyring"
+version = "25.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jaraco-classes" },
+    { name = "jaraco-context" },
+    { name = "jaraco-functools" },
+    { name = "jeepney", marker = "sys_platform == 'linux'" },
+    { name = "pywin32-ctypes", marker = "sys_platform == 'win32'" },
+    { name = "secretstorage", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/4b/674af6ef2f97d56f0ab5153bf0bfa28ccb6c3ed4d1babf4305449668807b/keyring-25.7.0.tar.gz", hash = "sha256:fe01bd85eb3f8fb3dd0405defdeac9a5b4f6f0439edbb3149577f244a2e8245b", size = 63516, upload-time = "2025-11-16T16:26:09.482Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/db/e655086b7f3a705df045bf0933bdd9c2f79bb3c97bfef1384598bb79a217/keyring-25.7.0-py3-none-any.whl", hash = "sha256:be4a0b195f149690c166e850609a477c532ddbfbaed96a404d4e43f8d5e2689f", size = 39160, upload-time = "2025-11-16T16:26:08.402Z" },
 ]
 
 [[package]]
@@ -960,6 +1049,15 @@ wheels = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "11.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/1d/f4da6f02cdffe04d6362210b807146a26044c88d839208aec273bb0d9184/more_itertools-11.1.0.tar.gz", hash = "sha256:48e8f4d9e7e5878571ecf6f2b4e57634f93cd474cc8cfbd2376f2d11b396e30d", size = 145772, upload-time = "2026-05-22T14:14:29.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/3d/1087453384dbde46a8c7f9356eead2c58be8a7bf156bca40243377c85715/more_itertools-11.1.0-py3-none-any.whl", hash = "sha256:4b65538ae22f6fed0ce4874efd317463a7489796a0939fa66824dd542125a192", size = 72226, upload-time = "2026-05-22T14:14:28.824Z" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -998,6 +1096,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
+]
+
+[[package]]
+name = "oauthlib"
+version = "4.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/d8/a1bcc8ba112a627f8ffbdc212a78ce18d3ac07e91a5ca65d27918eee25a1/oauthlib-4.0.0.tar.gz", hash = "sha256:efb274799819440f95b4ab3b818869f1ce9ae26c5beacba0201d1a1b76b54f86", size = 187232, upload-time = "2026-09-28T06:01:18.77Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/f4/78229a1066068ca14fc60fb26cf7381cabe4382261392b90e5f9552722d4/oauthlib-4.0.0-py3-none-any.whl", hash = "sha256:624c28c13a0a59cabf9747dfa52af63be3e512a7f2714df16e91b5b3a145e6cd", size = 159715, upload-time = "2026-09-28T06:01:17.008Z" },
 ]
 
 [[package]]
@@ -1209,6 +1316,27 @@ wheels = [
 ]
 
 [[package]]
+name = "pyasn1"
+version = "0.6.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/9a/23310166d960def5897e91fe20e5b724601b02a22e84ba1f94232c0b7f67/pyasn1-0.6.4.tar.gz", hash = "sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81", size = 151262, upload-time = "2026-07-09T01:12:33.988Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/3b/6163796d69c3977d1e4287bea4a6979161cbbdd170ebb430511e8e1999ce/pyasn1-0.6.4-py3-none-any.whl", hash = "sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b", size = 84410, upload-time = "2026-07-09T01:12:32.92Z" },
+]
+
+[[package]]
+name = "pyasn1-modules"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyasn1" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e9/e6/78ebbb10a8c8e4b61a59249394a4a594c1a7af95593dc933a349c8d00964/pyasn1_modules-0.4.2.tar.gz", hash = "sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6", size = 307892, upload-time = "2025-03-28T02:41:22.17Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/8d/d529b5d697919ba8c11ad626e835d4039be708a35b0d22de83a269a6682c/pyasn1_modules-0.4.2-py3-none-any.whl", hash = "sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a", size = 181259, upload-time = "2025-03-28T02:41:19.028Z" },
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1340,6 +1468,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pywin32-ctypes"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/9f/01a1a99704853cb63f253eea009390c88e7131c67e66a0a02099a8c917cb/pywin32-ctypes-0.2.3.tar.gz", hash = "sha256:d162dc04946d704503b2edc4d55f3dba5c1d539ead017afa00142c38b9885755", size = 29471, upload-time = "2024-08-14T10:15:34.626Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/3d/8161f7711c017e01ac9f008dfddd9410dff3674334c233bde66e7ba65bbf/pywin32_ctypes-0.2.3-py3-none-any.whl", hash = "sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8", size = 30756, upload-time = "2024-08-14T10:15:33.187Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1370,6 +1507,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856, upload-time = "2026-05-14T19:25:27.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
+]
+
+[[package]]
+name = "requests-oauthlib"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "oauthlib" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/f2/05f29bc3913aea15eb670be136045bf5c5bbf4b99ecb839da9b422bb2c85/requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9", size = 55650, upload-time = "2024-03-22T20:32:29.939Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/5d/63d4ae3b9daea098d5d6f5da83984853c1bbacd5dc826764b249fe119d24/requests_oauthlib-2.0.0-py2.py3-none-any.whl", hash = "sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36", size = 24179, upload-time = "2024-03-22T20:32:28.055Z" },
 ]
 
 [[package]]
@@ -1420,6 +1570,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/78/fa/0f9c2020dc316c53d983be011720b8157cc052b97e3f4dfa7db6d0f880a6/ruff-0.16.10-py3-none-win32.whl", hash = "sha256:2a12e01cb9156c10c466f63b46eaae5ecea28dfbd21b5836353ae498e7d1349a", size = 10139176, upload-time = "2026-10-01T18:03:13.267Z" },
     { url = "https://files.pythonhosted.org/packages/99/29/cfb0df9448d4d4ad48c2de029ada9ebd71baa6da983a6c77ee6c6cd0fe82/ruff-0.16.10-py3-none-win_amd64.whl", hash = "sha256:97f2015c92aa97105b0eab19eb5d224884399281cfc5da86a92db4ab5e7fb2ca", size = 10584734, upload-time = "2026-10-01T18:03:16.006Z" },
     { url = "https://files.pythonhosted.org/packages/fc/05/c16957eb287c3fc062e032619a25868d93d408a844b725bcf514f7a378ff/ruff-0.16.10-py3-none-win_arm64.whl", hash = "sha256:25a65fe998c4e6861ec079ada5826a2fc605e6cbccbe9dcd7fac1f54e791621b", size = 10366440, upload-time = "2026-10-01T18:03:19.04Z" },
+]
+
+[[package]]
+name = "secretstorage"
+version = "3.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "jeepney" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/46/f5af3402b579fd5e11573ce652019a67074317e18c1935cc0b4ba9b35552/secretstorage-3.5.0-py3-none-any.whl", hash = "sha256:0ce65888c0725fcb2c5bc0fdb8e5438eece02c523557ea40ce0703c266248137", size = 15554, upload-time = "2025-11-23T19:02:51.545Z" },
 ]
 
 [[package]]

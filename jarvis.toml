@@ -8,9 +8,13 @@ calendar = "claude-haiku-4-5"
 search = "claude-haiku-4-5"    # quick web lookups: fastest (~1.5 s quicker than Sonnet 5.5)
 search_deep = "claude-sonnet-5-5"  # "dig deeper" / "research": better judgment across searches
 summarizer = "claude-haiku-4-5"  # condenses very long days (see [memory])
+approvals = "claude-haiku-4-5"   # asks "Shall I…?" before any change, then reads your answer
 
 [location]
 home_city = "Vancouver, BC"    # used when your location can't be found from your IP address
 
 [memory]
 new_day_hour = 4               # today's conversation starts fresh at 4 AM, so late nights stay one chat
+
+[auth]
+remember_days = 30             # sign-ins (Google) last this long, then Jarvis asks you to confirm again
