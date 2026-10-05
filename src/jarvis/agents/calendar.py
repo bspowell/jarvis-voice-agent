@@ -12,14 +12,12 @@ request is saved in Jarvis's memory, under the tool call, until it finishes). Se
 """
 
 import json
-from collections.abc import Callable, Sequence
 from datetime import datetime
 
 import httpx
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
-    InterruptOnConfig,
     ToolCallLimitMiddleware,
     ToolErrorMiddleware,
 )
@@ -27,8 +25,8 @@ from langchain.tools import BaseTool, ToolRuntime, tool
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
+from jarvis.agents.writes import needs_approval, with_receipts
 from jarvis.auth.google import NOT_SET_UP, NotSignedIn, access_token, is_set_up
-from jarvis.brain.approvals import requested_change
 from jarvis.brain.brain import timestamped
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
@@ -51,11 +49,6 @@ SIGN_IN_FIRST = (
     "Not signed in to Google, so the calendar is out of reach. A “Sign in with Google” button "
     "is showing for the user now. Once they say they've signed in, ask me again."
 )
-
-
-def needs_approval(describe: Callable[..., str]) -> InterruptOnConfig:
-    """Pause before the tool runs. You approve or reject; a change is a reject with a reason."""
-    return InterruptOnConfig(allowed_decisions=["approve", "reject"], description=describe)
 
 
 TOOLS = [list_events, create_event, update_event]  # no delete tool, on purpose
@@ -108,32 +101,10 @@ def make_calendar_tool(settings: Settings) -> BaseTool:
         # After you answer "Shall I…?", this tool runs again from the top. LangGraph then ignores
         # the new task and resumes the paused run from its saved state.
         result = await agent.ainvoke({"messages": [HumanMessage(task)]})
-        return with_receipts(result["messages"])  # the report, plus facts Jarvis can trust
+        # The report, plus facts Jarvis can trust: what you changed, what Google saved.
+        return with_receipts(result["messages"], receipt_in, "Saved in the calendar")
 
     return calendar_agent
-
-
-def with_receipts(messages: Sequence[AnyMessage]) -> str:
-    """The agent's report, plus facts taken from its tool results rather than its prose.
-
-    Jarvis never hears your "make it 1 PM" (that exchange happens outside his conversation),
-    and the report's wording can be ambiguous. So code adds what you changed while approving,
-    and what Google actually saved.
-    """
-    asked = [change for m in messages if (change := change_asked_in(m))]
-    saved = [receipt for m in messages if (receipt := receipt_in(m))]
-    facts = [messages[-1].text]
-    if asked:
-        facts.append(f"While approving, the user asked for: {'; '.join(asked)}.")
-    if saved:
-        facts.append(f"Saved in the calendar: {'; '.join(saved)}.")
-    return "\n".join(facts)
-
-
-def change_asked_in(message: AnyMessage) -> str | None:
-    if isinstance(message, ToolMessage) and message.status == "error":
-        return requested_change(message.text)
-    return None
 
 
 def receipt_in(message: AnyMessage) -> str | None:

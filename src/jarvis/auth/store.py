@@ -1,9 +1,9 @@
 """Where sign-ins live: the macOS Keychain, plus Jarvis's 30-day rule.
 
-Each service (Google now, Notion later) gets one Keychain entry, named "jarvis" with the
-service as its account. It holds the service's tokens and the moment you signed in. Tokens are
-renewed silently, but the sign-in date only moves when you sign in again, so every
-`remember_days` (30) Jarvis asks you to approve him in the browser once more.
+Each service (Google, Notion) gets one Keychain entry, named "jarvis" with the service as its
+account. It holds the service's tokens and the moment you signed in. Tokens are renewed
+silently, but the sign-in date only moves when you sign in again, so every `remember_days` (30)
+Jarvis asks you to approve him in the browser once more.
 """
 
 import json
@@ -15,6 +15,14 @@ import keyring
 from keyring.errors import PasswordDeleteError
 
 KEYCHAIN_SERVICE = "jarvis"  # the name to search for in Keychain Access
+
+
+class NotSignedIn(Exception):
+    """No working sign-in: never signed in, signed out, access removed, or 30 days up."""
+
+
+class SignInFailed(Exception):
+    """The browser sign-in didn't finish: timed out, declined, or a permission was unticked."""
 
 
 @dataclass(frozen=True)

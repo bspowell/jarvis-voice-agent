@@ -17,4 +17,10 @@ home_city = "Vancouver, BC"    # used when your location can't be found from you
 new_day_hour = 4               # today's conversation starts fresh at 4 AM, so late nights stay one chat
 
 [auth]
-remember_days = 30             # sign-ins (Google) last this long, then Jarvis asks you to confirm again
+remember_days = 30             # sign-ins (Google, Notion) last this long, then Jarvis asks you to confirm again
+
+[files]
+folders = ["~/Documents", "~/Desktop", "~/Downloads", "~/coding"]  # the only folders Jarvis may search, read or write in
+
+[notion]
+open_pages = true              # show each page Jarvis reads or writes in the Notion app

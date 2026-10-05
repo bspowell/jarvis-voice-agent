@@ -26,6 +26,7 @@ from jarvis.prompts import load_prompt
 
 ANSWER_WITHIN = timedelta(minutes=5)  # a later answer starts afresh: nothing stale gets approved
 CHANGE_FIRST = "The user wants a change first: "  # how a change reaches the agent (see below)
+SAID_NO = "The user said no."  # how a plain no reaches the agent
 
 
 class Reading(BaseModel):
@@ -73,13 +74,18 @@ def decision_for(reading: Reading) -> dict[str, str]:
             "message": f"{CHANGE_FIRST}“{reading.change}”. Propose it again with only that "
             "changed; they'll be asked again.",
         }
-    return {"type": "reject", "message": "The user said no. Don't retry; nothing was changed."}
+    return {"type": "reject", "message": f"{SAID_NO} Don't retry; nothing was changed."}
 
 
 def requested_change(text: str) -> str | None:
     """The change you asked for, if `text` (a rejected tool call's result) carries one."""
     found = re.search(re.escape(CHANGE_FIRST) + "“(.*?)”", text)
     return found.group(1) if found else None
+
+
+def said_no(text: str) -> bool:
+    """True if `text` (a rejected tool call's result) is your plain no."""
+    return SAID_NO in text
 
 
 def descriptions(interrupts: Sequence[Interrupt]) -> list[str]:

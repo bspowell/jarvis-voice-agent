@@ -16,7 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Interrupt
 
-from jarvis.brain.approvals import Approvals, Question
+from jarvis.brain.approvals import Approvals, Question, descriptions
 from jarvis.brain.memory import daily_thread_id
 from jarvis.events import Event, EventBus
 
@@ -117,3 +117,5 @@ class Brain:
         self.question = Question(
             tuple(paused), "".join(question), datetime.now().astimezone(), config
         )
+        # The exact change, in code's words: a spoken question may sum up ("those 11 pages").
+        self.events.publish(Event("approval_needed", {"changes": descriptions(paused)}))

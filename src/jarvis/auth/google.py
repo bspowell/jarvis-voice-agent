@@ -21,7 +21,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow, WSGITimeoutError
 from oauthlib.oauth2 import OAuth2Error
 
-from jarvis.auth.store import SignInStore
+from jarvis.auth.store import NotSignedIn, SignInFailed, SignInStore
 from jarvis.config import Settings
 
 SERVICE = "google"
@@ -36,14 +36,6 @@ SIGN_IN_TIMEOUT_SECONDS = 300  # stop waiting for the browser after five minutes
 SIGNED_IN_PAGE = "Jarvis is signed in to your Google Calendar. You can close this tab."
 APP_FIELDS = ["client_id", "client_secret"]  # Jarvis's app (in .env), never stored with your tokens
 NOT_SET_UP = "Google sign-in isn't set up: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env."
-
-
-class NotSignedIn(Exception):
-    """No working Google sign-in: never signed in, signed out, access removed, or 30 days up."""
-
-
-class SignInFailed(Exception):
-    """The browser sign-in didn't finish: timed out, declined, or a permission was unticked."""
 
 
 def is_set_up(settings: Settings) -> bool:

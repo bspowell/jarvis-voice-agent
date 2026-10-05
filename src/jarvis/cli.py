@@ -1,14 +1,19 @@
 """The `jarvis` command: `uv run jarvis <command>`."""
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
+from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from jarvis.agents.registry import Health, roll_call
-from jarvis.auth import google
+from jarvis.auth import google, notion
+from jarvis.auth.store import SignInFailed, SignInStore
 from jarvis.brain.approvals import Approvals
 from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import boot_greeting
@@ -23,7 +28,28 @@ console = Console()
 
 EXIT_WORDS = {"exit", "quit"}
 FILLER = "Right away, sir."  # shown while a sub-agent works; voice will say it (Phase 7)
-SIGNED_IN = "I've signed in to Google."  # sent for you after signing in, so Jarvis carries on
+
+
+class Service(StrEnum):
+    """The online accounts Jarvis signs in to."""
+
+    google = "google"
+    notion = "notion"
+
+
+@dataclass(frozen=True)
+class Account:
+    """The chat's words for one service's sign-in."""
+
+    name: str  # "Google"
+    button: str  # the sign-in button's label
+    signed_in: str  # sent for you once you've signed in, so Jarvis carries on with your request
+
+
+ACCOUNTS = {
+    Service.google: Account("Google", "Sign in with Google", "I've signed in to Google."),
+    Service.notion: Account("Notion", "Connect Notion", "I've connected Notion."),
+}
 
 
 @app.callback()
@@ -68,6 +94,9 @@ def show_event(event: Event) -> None:
     """What text chat shows while Jarvis works."""
     if event.name == "agent_started":
         console.print(f"[dim]{FILLER}[/] ", end="")
+    elif event.name == "approval_needed":  # under "Shall I…?": exactly what a yes would do
+        for change in event.details["changes"]:
+            console.print(f"\n[dim]  ↳ {escape(change)}[/]", end="")
 
 
 class SignInRequests:
@@ -104,9 +133,11 @@ def _chat_loop(
         if not text:
             continue
         _reply(runner, brain, text)
-        if "google" in sign_ins.take() and sign_in_button(settings):
-            console.print(f"\n[bold]You:[/] {SIGNED_IN}")
-            _reply(runner, brain, SIGNED_IN)  # Jarvis picks up your original request
+        for service in sign_ins.take():
+            if sign_in_button(runner, settings, Service(service)):
+                said = ACCOUNTS[Service(service)].signed_in
+                console.print(f"\n[bold]You:[/] {said}")
+                _reply(runner, brain, said)  # Jarvis picks up your original request
 
 
 def _reply(runner: asyncio.Runner, brain: Brain, text: str) -> None:
@@ -126,49 +157,60 @@ async def _print_reply(brain: Brain, text: str) -> None:
     console.print()
 
 
-def sign_in_button(settings: Settings) -> bool:
-    """The chat's "Sign in with Google" button: Enter opens the browser. True once signed in."""
+def sign_in_button(runner: asyncio.Runner, settings: Settings, service: Service) -> bool:
+    """The chat's sign-in button, e.g. "Connect Notion": Enter opens the browser. True once in."""
     try:
         skip = console.input(
-            "[bold cyan]▸ Sign in with Google[/] [dim](press Enter, or type 'skip')[/] "
+            f"[bold cyan]▸ {ACCOUNTS[service].button}[/] [dim](press Enter, or type 'skip')[/] "
         ).strip()
     except (EOFError, KeyboardInterrupt):
         return False
-    return not skip and _sign_in(settings)
+    return not skip and _sign_in(runner, settings, service)
 
 
-def _sign_in(settings: Settings) -> bool:
+def _sign_in(runner: asyncio.Runner, settings: Settings, service: Service) -> bool:
+    name = ACCOUNTS[service].name
     try:
         with console.status(
             "Waiting for you to approve Jarvis in your browser… (Ctrl+C to cancel)"
         ):
-            google.sign_in(settings)
-    except google.SignInFailed as error:
-        console.print(f"[red]Not signed in:[/] {error}")
+            if service == Service.google:
+                google.sign_in(settings)  # Google's library waits by itself
+            else:
+                runner.run(notion.sign_in(settings))  # Notion's runs on the chat's event loop
+    except SignInFailed as error:
+        console.print(f"[red]Not signed in to {name}:[/] {error}")
         return False
     except KeyboardInterrupt:
         console.print("[dim](Sign-in cancelled.)[/]")
         return False
-    console.print("[green]✓ Signed in to Google.[/] Saved in your Keychain.")
+    console.print(f"[green]✓ Signed in to {name}.[/] Saved in your Keychain.")
     return True
 
 
+ServiceArgument = Annotated[Service, typer.Argument(help="Which account: google or notion.")]
+
+
 @app.command()
-def login() -> None:
-    """Sign in to Google now (Jarvis also offers when you first ask about your calendar)."""
+def login(service: ServiceArgument = Service.google) -> None:
+    """Sign in now (Jarvis also offers a button the first time he needs the account)."""
     settings = get_settings()
-    if not google.is_set_up(settings):
+    if service == Service.google and not google.is_set_up(settings):
         console.print(f"[red]{google.NOT_SET_UP}[/]")
         raise typer.Exit(1)
-    if not _sign_in(settings):
-        raise typer.Exit(1)
+    with asyncio.Runner() as runner:
+        if not _sign_in(runner, settings, service):
+            raise typer.Exit(1)
 
 
 @app.command()
-def logout() -> None:
-    """Sign out of Google: Jarvis forgets the sign-in and Google cancels his access."""
-    signed_out = google.sign_out(get_settings())
-    console.print("Signed out of Google." if signed_out else "Not signed in to Google.")
+def logout(service: ServiceArgument = Service.google) -> None:
+    """Sign out: Jarvis forgets the sign-in and asks the service to cancel his access."""
+    sign_out = google.sign_out if service == Service.google else notion.sign_out
+    name = ACCOUNTS[service].name
+    console.print(
+        f"Signed out of {name}." if sign_out(get_settings()) else f"Not signed in to {name}."
+    )
 
 
 @app.command()
@@ -189,6 +231,12 @@ def doctor() -> None:
     sign_ins.add_column("Account")
     sign_ins.add_column("Status")
     sign_ins.add_row("Google", google_status(settings))
+    sign_ins.add_row(
+        "Notion",
+        sign_in_status(
+            notion.notion_store(settings), "ask about your notes, or `jarvis login notion`"
+        ),
+    )
     console.print(sign_ins)
 
     models = Table(title="Models")
@@ -211,10 +259,15 @@ def doctor() -> None:
 def google_status(settings: Settings) -> str:
     if not google.is_set_up(settings):
         return "[dim]not set up: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in .env[/]"
-    store = google.google_store(settings)
+    return sign_in_status(
+        google.google_store(settings), "ask about your calendar, or run `jarvis login`"
+    )
+
+
+def sign_in_status(store: SignInStore, how_to_sign_in: str) -> str:
     saved = store.saved()
     if saved is None:
-        return "[yellow]not signed in[/]: ask about your calendar, or run `jarvis login`"
+        return f"[yellow]not signed in[/]: {how_to_sign_in}"
     renew = store.renew_by(saved).astimezone()
     if store.expired(saved):
         return f"[yellow]needs a fresh sign-in[/] (30 days were up on {renew:%-d %b})"

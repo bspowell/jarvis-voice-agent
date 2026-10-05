@@ -1,10 +1,12 @@
-"""Stand-ins for the model, the web, Google and the Keychain: tests are fast, free and offline."""
+"""Stand-ins for the model, the web, Google, Notion and the Keychain: tests run free and offline."""
 
+import json
 import re
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
+from fastmcp import Client, FastMCP
 from firecrawl.v2.types import (
     CreditUsage,
     Document,
@@ -316,3 +318,105 @@ class FakeApprovalModel(FakeToolCallingModel):
             return self.readings.pop(0)
 
         return RunnableLambda(read)
+
+
+# --- Notion (its MCP server) ---
+def notion_page(page_id: str, title: str, path: str, text: str) -> dict[str, str]:
+    return {
+        "id": page_id,
+        "title": title,
+        "url": f"https://app.notion.com/p/{page_id.replace('-', '')}",
+        "path": path,
+        "text": text,
+    }
+
+
+TREK_NOTES = notion_page(
+    "a1b2c3d4-0000-4000-8000-000000000001", "Trek notes", "Personal", "Venice is best in May."
+)
+HEALTH = notion_page("1a2b3c4d-1111-4222-8333-444455556666", "Health", "Personal", "")
+VENICE_TRIP = notion_page(  # a page inside Trek notes: found by search, but not a database row
+    "77aa77aa-1111-4222-8333-444455556666", "Venice trip", "Personal / Trek notes", "Book a cabin."
+)
+DATABASE = {
+    "id": "b2c3d4e5-0000-4000-8000-000000000002",
+    "title": "New database",
+    "url": "https://app.notion.com/p/b2c3d4e5000040008000000000000002",
+    "view": "view://b2c3d4e5-0000-4000-8000-000000000003",
+}
+NEW_PAGE_ID = "9f8e7d6c5b4a49388271605f4e3d2c1b"
+NEW_PAGE_URL = f"https://app.notion.com/p/{NEW_PAGE_ID}"
+
+
+class FakeNotion:
+    """Stands in for Notion's MCP server: a real MCP server, in memory, with canned pages.
+
+    Results copy the shapes Notion's real server returns (checked live in Phase 6).
+    `created`, `updated` and `moved` record every write.
+    """
+
+    def __init__(
+        self, pages: list[dict[str, str]] | None = None, rows: list[dict[str, str]] | None = None
+    ) -> None:
+        self.pages = pages if pages is not None else [TREK_NOTES, HEALTH, VENICE_TRIP]
+        self.rows = rows if rows is not None else [TREK_NOTES, HEALTH]  # the database's own pages
+        self.created: list[dict[str, Any]] = []
+        self.updated: list[dict[str, Any]] = []
+        self.moved: list[dict[str, Any]] = []
+        self.server = FastMCP("Fake Notion")
+        self.add_tools()
+
+    def client(self) -> Client:
+        return Client(self.server)
+
+    def add_tools(self) -> None:
+        server = self.server
+
+        @server.tool(name="notion-search")
+        def search(query: str, page_size: int | None = None) -> str:
+            words = query.lower().split()
+            hits = [page for page in self.pages if any(w in page["title"].lower() for w in words)]
+            results = [{key: page[key] for key in ("id", "title", "url", "path")} for page in hits]
+            return json.dumps({"results": results, "type": "workspace_search"})
+
+        @server.tool(name="notion-fetch")
+        def fetch(id: str) -> str:
+            if DATABASE["id"].replace("-", "") in id.replace("-", ""):  # its views, not its rows
+                view = f'<views><view url="{{{{{DATABASE["view"]}}}}}"></view></views>'
+                return json.dumps({"metadata": {"type": "database"}, **DATABASE, "text": view})
+            page = next(p for p in self.pages if p["id"].replace("-", "") in id.replace("-", ""))
+            return json.dumps({"metadata": {"type": "page"}, **page})
+
+        @server.tool(name="notion-query-data-sources")
+        def query_data_sources(data: dict[str, Any]) -> str:
+            assert data["mode"] == "view" and data["view_url"] == DATABASE["view"]
+            start = int(data.get("start_cursor", 0))
+            page = self.rows[start : start + data["page_size"]]
+            more = start + len(page) < len(self.rows)
+            results = [{"Name": row["title"], "url": row["url"]} for row in page]
+            return json.dumps(
+                {"results": results, "has_more": more, "next_cursor": str(start + len(page))}
+            )
+
+        @server.tool(name="notion-create-pages")
+        def create_pages(
+            pages: list[dict[str, Any]],
+            parent: dict[str, Any] | None = None,
+            creation_mode: str | None = None,
+        ) -> str:
+            self.created.append({"pages": pages, "parent": parent, "creation_mode": creation_mode})
+            return json.dumps({"pages": [{"id": NEW_PAGE_ID, "url": NEW_PAGE_URL}]})
+
+        @server.tool(name="notion-update-page")
+        def update_page(page_id: str, command: str, content: str | None = None) -> str:
+            self.updated.append({"page_id": page_id, "command": command, "content": content})
+            return json.dumps({"page_id": page_id})
+
+        @server.tool(name="notion-move-pages")
+        def move_pages(page_or_database_ids: list[str], new_parent: dict[str, Any]) -> str:
+            self.moved.append({"ids": page_or_database_ids, "new_parent": new_parent})
+            return json.dumps({"moved": page_or_database_ids})
+
+        @server.tool(name="notion-duplicate-page")
+        def duplicate_page(page_id: str) -> str:
+            raise AssertionError("Jarvis is never given this tool")

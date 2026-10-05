@@ -118,6 +118,10 @@ async def test_no_means_nothing_is_saved(monkeypatch):
     rejection = calendar_model.seen[1][-1]  # what the Calendar agent heard
     assert isinstance(rejection, ToolMessage)
     assert "said no" in rejection.text
+    # Jarvis never heard the "no": the receipt tells him, whatever the report's wording.
+    assert (await report_to_jarvis(brain)).endswith(
+        "While approving, the user said no, so nothing was saved."
+    )
 
 
 async def test_a_change_is_proposed_again_and_needs_its_own_yes(monkeypatch):

@@ -34,9 +34,21 @@ class ModelSettings(BaseModel):
 
 
 class AuthSettings(BaseModel):
-    """How long a sign-in (Google, later Notion) lasts before Jarvis asks you to confirm it."""
+    """How long a sign-in (Google, Notion) lasts before Jarvis asks you to confirm it."""
 
     remember_days: int = Field(default=30, ge=1)
+
+
+class FilesSettings(BaseModel):
+    """The only folders Jarvis may search, read and write in (hidden and secret files never)."""
+
+    folders: list[str] = ["~/Documents", "~/Desktop", "~/Downloads", "~/coding"]
+
+
+class NotionSettings(BaseModel):
+    """How Jarvis works with Notion."""
+
+    open_pages: bool = True  # show each page he reads or writes in the Notion app
 
 
 class MemorySettings(BaseModel):
@@ -77,6 +89,8 @@ class Settings(BaseSettings):
     location: LocationSettings = Field(default_factory=LocationSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    files: FilesSettings = Field(default_factory=FilesSettings)
+    notion: NotionSettings = Field(default_factory=NotionSettings)
     data_dir: Path = PROJECT_ROOT / "data"
 
     @classmethod
