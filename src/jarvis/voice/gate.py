@@ -13,13 +13,16 @@ Deepgram Flux (his ears) and which of Flux's words reach LiveKit:
 
 import asyncio
 import logging
+import math
 import re
+import time
 from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
+import numpy as np
 from livekit import rtc
 from livekit.agents import stt
 
@@ -30,6 +33,8 @@ logger = logging.getLogger(__name__)
 WAKE_WORDS = {"hey", "jarvis"}
 CUT_IN_WORDS = {"jarvis", "stop", "wait"}  # the only words that may cut him off
 BUSY = {"thinking", "speaking"}  # LiveKit's agent states while he's on a reply
+SPEECH_RISE = 15.0  # dB above the pre-roll's quietest moment: someone has started talking
+FLUX_BEHIND = 2.0  # seconds Flux may lag your voice before the log says why he's slow
 
 
 @dataclass(frozen=True)
@@ -37,9 +42,18 @@ class Timing:
     """How long the gate waits, in seconds."""
 
     pre_roll: float = 1.5  # audio from before the wake word that Flux hears first
+    lead_in: float = 0.25  # of the silence before you spoke in it, what Flux still hears
     after_wake: float = 8.0  # "Hey Jarvis", then nothing: back to sleep
     follow_up: float = 6.0  # after his answer: carry on without the wake word
     question: float = 10.0  # after "Shall I…?": time to answer
+
+
+@dataclass(frozen=True)
+class Finished:
+    """When you finished your latest turn (wall-clock times): to time his reply."""
+
+    last_word: float  # your last word ended (from Flux's word timings)
+    heard: float  # Flux said you'd finished
 
 
 class Turn(Enum):
@@ -71,13 +85,17 @@ class Gate:
         self.events: asyncio.Queue[stt.SpeechEvent | None] | None = None  # to LiveKit
         self.recent: deque[rtc.AudioFrame] = deque()  # the last `pre_roll` seconds of mic
         self.recent_seconds = 0.0
-        self.clock = 0.0  # seconds of mic audio since the session started
+        self.mic_started_at: float | None = None  # wall-clock time your mic audio began
+        self.clock = 0.0  # seconds of mic audio since then
         self.hearing: asyncio.Task[None] | None = None  # reads Flux's events while awake
         self.agent_state = "initializing"  # LiveKit's: listening / thinking / speaking
         self.he_spoke = False  # has he said anything since waking?
         self.you_talking = False  # is Flux in the middle of a turn?
         self.turn = Turn.PASS
         self.held: list[stt.SpeechEvent] = []  # a held turn's events, in order
+        self.last_word: float | None = None  # when the turn's last word so far ended
+        self.finished: Finished | None = None  # your latest finished turn
+        self.flux_behind = False  # has the log said Flux is lagging? (once, until it catches up)
         self.pass_next_turn = False  # you cut in before Flux heard you: let your turn through
         self.quiet_timer: asyncio.TimerHandle | None = None
         self.closing: set[asyncio.Task[None]] = set()
@@ -110,6 +128,10 @@ class Gate:
 
     async def read(self, audio: AsyncIterable[rtc.AudioFrame], spotter: Spotter) -> None:
         async for frame in audio:
+            if self.mic_started_at is None:
+                self.mic_started_at = time.time() - frame.duration  # as LiveKit times it
+                if self.he_spoke:  # in a room he greets as he joins, before your audio arrives
+                    self.wake("he spoke first; your mic just started", pre_roll=False)
             self.clock += frame.duration
             self.recent.append(frame)
             self.recent_seconds += frame.duration
@@ -145,10 +167,10 @@ class Gate:
     # --- Awake and asleep ---
     def wake(self, reason: str, *, pre_roll: bool) -> None:
         """Open Flux. With `pre_roll`, it first hears the audio that held the wake word."""
-        if self.awake or self.events is None or not self.clock:
+        if self.awake or self.events is None or self.mic_started_at is None:
             return  # already listening, or no mic yet (e.g. the text-only debugger)
         ears = self.open_ears()
-        first = list(self.recent) if pre_roll else []
+        first = from_your_voice(list(self.recent), self.timing.lead_in) if pre_roll else []
         # Flux times words from the first audio it gets; LiveKit times your turns from them.
         ears.start_time_offset = max(0.0, self.clock - sum(frame.duration for frame in first))
         for frame in first:
@@ -197,11 +219,20 @@ class Gate:
         if event.type is kind.RECOGNITION_USAGE:  # how much audio Flux billed: always passes
             self.send(event)
             return
+        self.check_lag(event)
         if event.type is kind.START_OF_SPEECH:
             self.you_talking = True
             over_him = self.he_is_speaking and not self.pass_next_turn
             self.turn = Turn.HOLD if over_him else Turn.PASS
             self.pass_next_turn = False
+        elif event.type is kind.FINAL_TRANSCRIPT:
+            self.last_word = self.last_word_end(event) or self.last_word
+        elif event.type is kind.END_OF_SPEECH and self.last_word is not None:
+            # Flux's end of turn carries no time, so LiveKit would count its 0.3 s wait from
+            # now. Stamped with your last word, the wait has usually passed: he answers sooner.
+            event = replace(event, speech_end_time=self.last_word)
+            self.finished = Finished(self.last_word, heard=time.time())
+            self.last_word = None
         if self.turn is Turn.PASS:
             self.send(event)
         elif self.turn is Turn.HOLD:
@@ -214,6 +245,27 @@ class Gate:
                 self.settle_held_turn()
             self.turn = Turn.PASS
         self.update_quiet_timer()
+
+    def check_lag(self, event: stt.SpeechEvent) -> None:
+        """Log when Flux's results come well behind your voice: a slow or busy network (Flux is
+        in Deepgram's cloud). He then answers late, and may miss a follow-up."""
+        heard_up_to = event.alternatives[0].end_time if event.alternatives else 0.0
+        if not heard_up_to:
+            return
+        behind = self.clock - heard_up_to  # both count seconds of your audio
+        if behind > FLUX_BEHIND and not self.flux_behind:
+            self.flux_behind = True
+            logger.warning("Deepgram is %.1f s behind your voice: a slow network?", behind)
+        elif behind < FLUX_BEHIND / 2:
+            self.flux_behind = False  # caught up: say so again if it falls behind again
+
+    def last_word_end(self, event: stt.SpeechEvent) -> float | None:
+        """When the transcript's last word ended, on LiveKit's (wall) clock."""
+        words = event.alternatives[0].words if event.alternatives else None
+        ended = words[-1].end_time if words else None
+        if self.mic_started_at is None or not isinstance(ended, float):
+            return None
+        return self.mic_started_at + ended  # Flux's times count from where the mic began
 
     def cut_in(self, reason: str) -> None:
         """You said "stop" or "Jarvis" over him: he stops, and LiveKit gets your words."""
@@ -262,6 +314,27 @@ class Gate:
         if self.quiet_timer is not None:
             self.quiet_timer.cancel()
             self.quiet_timer = None
+
+
+def from_your_voice(frames: list[rtc.AudioFrame], lead_in: float) -> list[rtc.AudioFrame]:
+    """The pre-roll from just before you spoke: of the silence before your voice, only
+    `lead_in` seconds are kept. Flux catches up on the pre-roll only a little faster than real
+    time, so every second it skips is a second sooner for your first reply."""
+    levels = [loudness(frame) for frame in frames]
+    voice = min(levels, default=0.0) + SPEECH_RISE
+    start = next((i for i, level in enumerate(levels) if level > voice), 0)  # none: keep all
+    kept = 0.0
+    while start > 0 and kept < lead_in:
+        start -= 1
+        kept += frames[start].duration
+    return frames[start:]
+
+
+def loudness(frame: rtc.AudioFrame) -> float:
+    """How loud a frame is, in dB below full scale (silence: -100)."""
+    samples = np.frombuffer(frame.data, dtype=np.int16).astype(np.float32)
+    rms = math.sqrt(float(np.mean(samples**2))) if samples.size else 0.0
+    return 20 * math.log10(max(rms / 32768, 1e-5))
 
 
 def words(text: str) -> list[str]:

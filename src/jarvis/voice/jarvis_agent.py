@@ -17,6 +17,7 @@ from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentStateChangedEvent,
+    ConversationItemAddedEvent,
     FlushSentinel,
     ModelSettings,
     SpeechCreatedEvent,
@@ -32,7 +33,7 @@ from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
 from jarvis.events import Event
-from jarvis.voice.gate import Gate, Timing, only_cut_in_words, only_wake_words
+from jarvis.voice.gate import Finished, Gate, Timing, only_cut_in_words, only_wake_words
 from jarvis.voice.phrases import Phrases, fixed_line
 from jarvis.voice.spotter import Spotter
 
@@ -100,6 +101,7 @@ class JarvisAgent(Agent):
         self.signing_in: set[Service] = set()
         self.background: set[asyncio.Task[None]] = set()
         self.said: deque[str] = deque(maxlen=200)  # his latest words: the gate spots his echo
+        self.answering: Finished | None = None  # the spoken turn being answered (to time it)
         self.gate = Gate(
             self.open_ears,
             interrupt=self.stop_talking,
@@ -112,6 +114,7 @@ class JarvisAgent(Agent):
     async def on_enter(self) -> None:
         self.session.on("speech_created", self.on_speech_created)
         self.session.on("agent_state_changed", self.on_agent_state_changed)
+        self.session.on("conversation_item_added", self.on_item_added)
 
     async def greet(self) -> None:
         """Say the boot greeting (from a recording, after the first time).
@@ -128,6 +131,14 @@ class JarvisAgent(Agent):
 
     def on_agent_state_changed(self, event: AgentStateChangedEvent) -> None:
         self.gate.agent_state_changed(event.new_state)  # speaking / thinking / listening
+
+    def on_item_added(self, event: ConversationItemAddedEvent) -> None:
+        """A reply to a spoken turn has been said: log how long it took to start, and why."""
+        item = event.item
+        if isinstance(item, llm.ChatMessage) and item.role == "assistant":
+            finished, self.answering = self.answering, None
+            if finished is not None and (line := latency(finished, item.metrics)):
+                logger.info("Replied %s", line)
 
     # --- Ears: the wake-word gate ---
     async def stt_node(
@@ -158,6 +169,7 @@ class JarvisAgent(Agent):
             raise StopResponse()
         if only_cut_in_words(words):
             raise StopResponse()  # he has stopped: nothing to answer
+        self.answering = self.gate.finished
 
     def on_brain_event(self, event: Event) -> None:
         """What voice does while Jarvis works (text chat shows the same events its own way)."""
@@ -246,6 +258,20 @@ class JarvisAgent(Agent):
         async for chunk in text:
             self.said.append(chunk)
             yield chunk
+
+
+def latency(finished: Finished, his: llm.MetricsReport) -> str | None:
+    """How long a reply took to start, and where the time went: "2.20 s after you stopped
+    (Flux 0.45 s · Brain 1.01 s · voice 0.17 s)". None if none of it was heard."""
+    if "started_speaking_at" not in his:
+        return None
+    stages = {
+        "Flux": finished.heard - finished.last_word,  # your last word → "you've finished"
+        "Brain": his.get("llm_node_ttft"),  # your words → his first words
+        "voice": his.get("tts_node_ttfb"),  # his first words → their first audio
+    }
+    parts = " · ".join(f"{name} {seconds:.2f} s" for name, seconds in stages.items() if seconds)
+    return f"{his['started_speaking_at'] - finished.last_word:.2f} s after you stopped ({parts})"
 
 
 def your_words(chat_ctx: llm.ChatContext) -> str:

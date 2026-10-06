@@ -623,23 +623,28 @@ class FakeMic(io.AudioInput):
 FRAME = 1 / 64  # seconds of audio per test frame (exact in binary, so sums of frames are too)
 
 
-def frame(*words: str) -> rtc.AudioFrame:
-    """1/64 s of silent mic audio, in which the fake spotter "hears" `words`."""
-    return rtc.AudioFrame(bytes(500), 16000, 1, 250, userdata={"words": words})
+def frame(*words: str, loud: bool = False) -> rtc.AudioFrame:
+    """1/64 s of mic audio, silent (or `loud`: someone talking), in which the fake spotter
+    "hears" `words`."""
+    audio = (8000).to_bytes(2, "little", signed=True) * 250 if loud else bytes(500)
+    return rtc.AudioFrame(audio, 16000, 1, 250, userdata={"words": words})
 
 
 def start() -> stt.SpeechEvent:
     return stt.SpeechEvent(type=stt.SpeechEventType.START_OF_SPEECH)
 
 
-def interim(text: str) -> stt.SpeechEvent:
+def interim(text: str, heard_up_to: float = 0.0) -> stt.SpeechEvent:
+    """Flux's transcript so far; `heard_up_to`: how far into your audio it has got (seconds)."""
     kind = stt.SpeechEventType.INTERIM_TRANSCRIPT
-    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text)])
+    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text, end_time=heard_up_to)])
 
 
-def final(text: str) -> stt.SpeechEvent:
+def final(text: str, ended_at: float | None = None) -> stt.SpeechEvent:
+    """Flux's final transcript; `ended_at`: when its last word ended (seconds into the session)."""
     kind = stt.SpeechEventType.FINAL_TRANSCRIPT
-    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text)])
+    words = None if ended_at is None else [io.TimedString(text, end_time=ended_at)]
+    return stt.SpeechEvent(kind, alternatives=[stt.SpeechData("en", text, words=words)])
 
 
 def end() -> stt.SpeechEvent:

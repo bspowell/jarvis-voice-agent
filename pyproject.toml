@@ -26,6 +26,8 @@ dependencies = [
     "kokoro-onnx>=0.6.1",
     "pyopen-wakeword>=1.1.0",
     "pymicro-wakeword>=2.5.0",
+    "livekit-api>=1.2.1",
+    "numpy>=2.5.3",
 ]
 
 [project.scripts]
@@ -56,3 +58,4 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore:The HMAC key is:UserWarning"]  # the local LiveKit server's dev secret

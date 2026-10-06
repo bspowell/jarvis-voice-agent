@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     # Your Google account's tokens never go here: they live in the macOS Keychain.
     google_client_id: str | None = None
     google_client_secret: SecretStr | None = None
+    # The LiveKit server between the desktop app and the voice agent. These defaults are the
+    # local one's (`livekit-server --dev`): fixed, public development credentials.
+    livekit_url: str = "ws://localhost:7880"
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: SecretStr = SecretStr("secret")
 
     # Preferences (jarvis.toml)
     models: ModelSettings = Field(default_factory=ModelSettings)

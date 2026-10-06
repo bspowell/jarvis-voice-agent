@@ -3,7 +3,13 @@ import pytest
 
 from jarvis.config import Settings
 from jarvis.voice import health
-from jarvis.voice.health import check_deepgram, check_elevenlabs, check_fallback_voice, check_voice
+from jarvis.voice.health import (
+    check_deepgram,
+    check_elevenlabs,
+    check_fallback_voice,
+    check_livekit,
+    check_voice,
+)
 from jarvis.voice.kokoro_tts import MODEL_FILE, VOICES_FILE
 
 VOICE_ID = "voice-123"
@@ -94,12 +100,35 @@ async def test_check_voice_reports_each_part(monkeypatch, tmp_path):
     async def elevenlabs(settings, http):
         raise RuntimeError("ElevenLabs can't find the voice (404).")
 
+    async def livekit(settings, http):
+        return "LiveKit server running."
+
     monkeypatch.setattr(health, "check_deepgram", deepgram)
     monkeypatch.setattr(health, "check_elevenlabs", elevenlabs)
-    ears, mouth, fallback = (await check_voice(voice_settings(data_dir=tmp_path))).values()
+    monkeypatch.setattr(health, "check_livekit", livekit)
+    report = await check_voice(voice_settings(data_dir=tmp_path))
+    ears, mouth, fallback, server = report.values()
     assert ears.present and ears.detail == "Deepgram ready."
     assert not mouth.present and "can't find the voice" in mouth.detail
     assert not fallback.present and "Not downloaded yet" in fallback.detail
+    assert server.present
+
+
+async def test_the_livekit_server_is_ready_when_its_web_address_answers():
+    seen = []
+    http = fake_api({"/": httpx.Response(200, text="OK")}, seen)
+    status = await check_livekit(voice_settings(), http)
+    assert status == "LiveKit server running at ws://localhost:7880."
+    assert str(seen[0].url) == "http://localhost:7880"  # ws:// → its web address
+
+
+async def test_a_livekit_server_that_isnt_running_says_how_to_start_it():
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused", request=request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+    with pytest.raises(RuntimeError, match="`jarvis up` starts it"):
+        await check_livekit(voice_settings(), http)
 
 
 def test_the_fallback_voice_is_ready_once_downloaded(tmp_path):

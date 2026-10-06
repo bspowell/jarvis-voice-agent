@@ -17,7 +17,8 @@ from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
 from jarvis.events import Event, EventBus
 from jarvis.voice import jarvis_agent
-from jarvis.voice.jarvis_agent import SNAG, BrainLLM, JarvisAgent, your_words
+from jarvis.voice.gate import Finished
+from jarvis.voice.jarvis_agent import SNAG, BrainLLM, JarvisAgent, latency, your_words
 from jarvis.voice.phrases import Phrases
 from jarvis.voice.spotter import WAKE
 from jarvis.voice.worker import TURNS
@@ -201,6 +202,14 @@ def test_your_words_are_the_latest_thing_you_said():
     chat.add_message(role="assistant", content="Sunny, sir.")
     chat.add_message(role="user", content="And tomorrow?")
     assert your_words(chat) == "And tomorrow?"
+
+
+def test_the_log_times_each_reply_from_your_last_word():
+    finished = Finished(last_word=100.0, heard=100.45)  # Flux took 0.45 s to say you'd finished
+    his = {"started_speaking_at": 102.2, "llm_node_ttft": 1.01, "tts_node_ttfb": 0.17}
+    line = "2.20 s after you stopped (Flux 0.45 s · Brain 1.01 s · voice 0.17 s)"
+    assert latency(finished, his) == line
+    assert latency(finished, {"llm_node_ttft": 1.01}) is None  # cut off before any audio
 
 
 @pytest.mark.parametrize("words", ["", "   "])

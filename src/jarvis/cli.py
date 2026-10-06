@@ -187,6 +187,22 @@ def logout(service: ServiceArgument = Service.google) -> None:
 
 
 @app.command()
+def desktop() -> None:
+    """The desktop app: talk to Jarvis with your mic and speakers (he must be running)."""
+    from jarvis.desktop.app import run_desktop  # loads LiveKit: only when asked
+
+    run_desktop(get_settings())
+
+
+@app.command()
+def up() -> None:
+    """Start everything voice needs: the LiveKit server, the voice agent and the desktop app."""
+    from jarvis.up import run_up
+
+    raise typer.Exit(run_up(get_settings()))
+
+
+@app.command()
 def doctor() -> None:
     """Show which API keys, sign-ins and models Jarvis can see (key values stay hidden)."""
     settings = get_settings()

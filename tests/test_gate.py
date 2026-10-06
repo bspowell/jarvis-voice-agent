@@ -122,6 +122,16 @@ async def test_hey_jarvis_opens_flux_with_the_audio_just_before_it():
         assert session.ears.pushed[-1] is later  # then everything live
 
 
+async def test_flux_skips_the_silence_before_you_spoke_but_a_moment():
+    async with Session() as session:
+        session.gate.timing = Timing(pre_roll=8 * FRAME, lead_in=2 * FRAME)
+        quiet = [frame() for _ in range(6)]
+        mic = [*quiet, frame(loud=True), frame(WAKE, loud=True)]  # silence, then "Hey Jarvis"
+        await session.say(*mic)
+        assert session.ears.pushed == mic[4:]  # two frames of silence, then your voice
+        assert session.ears.start_time_offset == 4 * FRAME
+
+
 async def test_with_no_pre_roll_flux_hears_only_what_comes_next():
     async with Session() as session:
         session.gate.timing = Timing(pre_roll=0)
@@ -134,6 +144,25 @@ async def test_awake_livekit_gets_everything_flux_hears():
         await session.say(frame(WAKE))
         await session.flux_hears(start(), interim("What's"), final("What's my day?"), end())
     assert heard(session.livekit) == ["start", "interim: What's", "final: What's my day?", "end"]
+
+
+async def test_livekit_learns_when_you_actually_stopped_talking():
+    async with Session() as session:
+        await session.say(frame(WAKE))
+        mic_started_at = session.gate.mic_started_at
+        await session.flux_hears(start(), final("What's my day?", ended_at=1.25), end())
+    # Flux's end-of-turn says nothing about time: without this, LiveKit counts its 0.3 s
+    # from when the event arrived, not from your last word
+    assert session.livekit[-1].speech_end_time == mic_started_at + 1.25
+    assert session.gate.finished.last_word == mic_started_at + 1.25  # to time his reply
+
+
+async def test_the_log_says_when_flux_falls_behind_your_voice(caplog):
+    async with Session() as session:
+        await session.say(frame(WAKE), *(frame() for _ in range(200)))  # ~3 s of your audio
+        await session.flux_hears(start(), interim("What's", heard_up_to=0.5))  # Flux: 0.5 s in
+        await session.flux_hears(interim("What's my", heard_up_to=0.6))
+    assert caplog.text.count("Deepgram is 2.6 s behind your voice") == 1  # said once
 
 
 async def test_hey_jarvis_then_nothing_goes_back_to_sleep():
@@ -201,6 +230,16 @@ async def test_he_wakes_when_he_speaks_first_so_you_can_answer():
         live = frame()
         await session.say(live)
         assert session.ears.pushed == [live]
+
+
+async def test_if_he_speaks_before_your_mic_starts_he_wakes_when_it_does():
+    async with Session() as session:  # a room: he greets as he joins, before your audio arrives
+        await session.he_is("speaking")
+        assert session.flux == []  # no mic yet: nothing to open
+        first = frame()
+        await session.say(first)
+        assert session.ears.pushed == [first]  # awake: answer him without "Hey Jarvis"
+        assert session.ears.start_time_offset == 0
 
 
 async def test_without_a_mic_his_speech_opens_nothing():

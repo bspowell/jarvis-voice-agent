@@ -46,11 +46,26 @@ async def check_elevenlabs(settings: Settings, http: httpx.AsyncClient) -> str:
     return f"{status}: {left:,} of {limit:,} credits left (resets {resets:%-d %b})."
 
 
+async def check_livekit(settings: Settings, http: httpx.AsyncClient) -> str:
+    """Health check: is the LiveKit server (between the desktop app and the agent) running?"""
+    web = settings.livekit_url.replace("ws://", "http://", 1).replace("wss://", "https://", 1)
+    try:
+        answer = await http.get(web)  # a running server replies "OK"
+    except httpx.TransportError:
+        answer = None
+    if answer is None or not answer.is_success:
+        raise RuntimeError(f"Not running at {settings.livekit_url}: `jarvis up` starts it.")
+    return f"LiveKit server running at {settings.livekit_url}."
+
+
 async def check_voice(settings: Settings) -> dict[str, Health]:
-    """Check the ears, the voice and the fallback voice (`jarvis doctor`)."""
+    """Check the ears, the voice, the fallback voice and the server (`jarvis doctor`)."""
     async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS) as http:
-        ears, mouth = await asyncio.gather(
-            check_deepgram(settings, http), check_elevenlabs(settings, http), return_exceptions=True
+        ears, mouth, server = await asyncio.gather(
+            check_deepgram(settings, http),
+            check_elevenlabs(settings, http),
+            check_livekit(settings, http),
+            return_exceptions=True,
         )
     try:
         fallback: str | Exception = check_fallback_voice(settings)
@@ -60,6 +75,7 @@ async def check_voice(settings: Settings) -> dict[str, Health]:
         "Ears (speech to text)": health(ears),
         "Voice (text to speech)": health(mouth),
         "Fallback voice (offline)": health(fallback),
+        "LiveKit server (desktop ⇄ agent)": health(server),
     }
 
 

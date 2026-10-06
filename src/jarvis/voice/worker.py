@@ -1,15 +1,26 @@
 """The voice worker: LiveKit runs `jarvis_session` each time a voice session starts.
 
 Run it with LiveKit's CLI from the project folder (it finds `agent.py`):
+- `jarvis up`: the desktop app, this worker and the local LiveKit server, together.
 - `lk agent console`: talk to Jarvis in this terminal, with your mic and speakers.
 - `lk agent debugger`: type turns from a script (no audio) and see what he did.
 """
 
 import asyncio
 import logging
+import threading
+import warnings
 from datetime import datetime
 
-from livekit.agents import AgentServer, AgentSession, JobContext, TurnHandlingOptions, tts
+from langsmith.run_trees import get_cached_client
+from livekit.agents import (
+    AgentServer,
+    AgentSession,
+    JobContext,
+    TurnHandlingOptions,
+    room_io,
+    tts,
+)
 from livekit.agents.utils.aio import cancel_and_wait
 
 from jarvis.agents.registry import roll_call
@@ -17,6 +28,7 @@ from jarvis.brain.greeting import boot_greeting
 from jarvis.brain.jarvis import make_brain
 from jarvis.brain.memory import DB_FILE, open_memory
 from jarvis.config import get_settings
+from jarvis.voice import AGENT_NAME, SHORT_KEY_WARNING, quiet_livekit_exit_noise
 from jarvis.voice.jarvis_agent import BrainLLM, JarvisAgent
 from jarvis.voice.kokoro_tts import KokoroTTS, kokoro_for
 from jarvis.voice.phrases import Phrases
@@ -32,6 +44,8 @@ NOISY_LOGGERS = (
 )
 for name in NOISY_LOGGERS:
     logging.getLogger(name).setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", SHORT_KEY_WARNING)  # the local server's dev secret
+quiet_livekit_exit_noise()
 
 TURNS = TurnHandlingOptions(
     turn_detection="stt",  # Flux's own end-of-turn model decides when you've finished
@@ -45,15 +59,25 @@ TURNS = TurnHandlingOptions(
     interruption={"resume_false_interruption": False},
 )
 
-server = AgentServer()
+TRACE_FLUSH_SECONDS = 5.0  # at a session's end, LangSmith gets this long to receive its traces
+
+server = AgentServer(
+    # One of you, so one session at a time: keep one process warm for the next one. LiveKit's
+    # default keeps one per CPU core (14 here, ~1.6 GB of memory) for a server full of callers.
+    num_idle_processes=1,
+    # Never too busy for you. LiveKit's default turns new sessions away while the CPU is above
+    # 70%: right for a fleet of servers, wrong for a Mac that's compiling something.
+    load_fnc=lambda: 0.0,
+)
 
 
-@server.rtc_session(agent_name="jarvis")
+@server.rtc_session(agent_name=AGENT_NAME)
 async def jarvis_session(ctx: JobContext) -> None:
     """One voice session: open the memory, call the roll, greet you, then listen and talk."""
     settings = get_settings()
     memory = await open_memory(settings.data_dir / DB_FILE)
     ctx.add_shutdown_callback(memory.close)  # always close it: open connections block exiting
+    ctx.add_shutdown_callback(send_last_traces)
     brain = make_brain(settings, memory)
     roll = await roll_call(settings)
     for name, health in roll.items():
@@ -80,8 +104,27 @@ async def jarvis_session(ctx: JobContext) -> None:
         turn_handling=TURNS,
     )
     agent = JarvisAgent(brain, settings, greeting, phrases)
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+        # Each desktop launch gets its own room. When the session ends (you quit, or it fails),
+        # the room goes too, and a desktop that's still open starts a fresh one.
+        room_options=room_io.RoomOptions(delete_room_on_close=True),
+    )
     await agent.greet()  # only now: the audio output is final once start() returns
+
+
+async def send_last_traces() -> None:
+    """Send LangSmith the session's last traces, then stop its background threads: otherwise
+    they'd be cut off as the session's process exits (and LiveKit warns about them)."""
+    await asyncio.to_thread(stop_tracing)
+
+
+def stop_tracing() -> None:
+    get_cached_client().cleanup(TRACE_FLUSH_SECONDS)  # sends what's left, then tells them to stop
+    for thread in threading.enumerate():  # they stop within a quarter of a second: wait for it
+        if "tracing_control_thread" in thread.name:
+            thread.join(timeout=1)
 
 
 async def get_ready(fallback: KokoroTTS) -> None:
