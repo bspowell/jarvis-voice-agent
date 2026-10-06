@@ -103,7 +103,7 @@ async def jarvis_session(ctx: JobContext) -> None:
         tts=tts.FallbackAdapter([voice, fallback], max_retry_per_tts=0),
         turn_handling=TURNS,
     )
-    agent = JarvisAgent(brain, settings, greeting, phrases)
+    agent = JarvisAgent(brain, settings, greeting, phrases, room=ctx.room)
     await session.start(
         agent=agent,
         room=ctx.room,

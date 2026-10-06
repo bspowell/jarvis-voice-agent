@@ -29,6 +29,7 @@ from langgraph.graph.state import CompiledStateGraph
 from jarvis.agents.writes import needs_approval, with_receipts
 from jarvis.auth.google import NOT_SET_UP, NotSignedIn, access_token, is_set_up
 from jarvis.brain.brain import timestamped
+from jarvis.brain.context import JarvisContext
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
 from jarvis.events import Event
@@ -97,7 +98,7 @@ def make_calendar_tool(settings: Settings) -> BaseTool:
     agent = build_calendar_agent(settings.models.calendar)
 
     @tool(parse_docstring=True)
-    async def calendar_agent(request: str, runtime: ToolRuntime) -> str:
+    async def calendar_agent(request: str, runtime: ToolRuntime[JarvisContext]) -> str:
         """Ask your Calendar agent about the user's Google Calendar and to-dos (Google Tasks):
         what's on, when they're free, what's due, or adding and changing events and tasks.
         It reports back briefly.

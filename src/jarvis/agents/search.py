@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from jarvis.brain.brain import timestamped
+from jarvis.brain.context import JarvisContext
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
 from jarvis.events import Event
@@ -59,7 +60,7 @@ def make_search_tool(settings: Settings) -> BaseTool:
 
     @tool(parse_docstring=True)
     async def search_agent(
-        request: str, runtime: ToolRuntime, depth: Literal["quick", "deep"] = "quick"
+        request: str, runtime: ToolRuntime[JarvisContext], depth: Literal["quick", "deep"] = "quick"
     ) -> str:
         """Ask your Search agent to look something up on the web; it reports back briefly.
 

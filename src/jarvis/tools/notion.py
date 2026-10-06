@@ -30,6 +30,7 @@ from langgraph.types import Command
 from mcp.types import TextContent
 
 from jarvis.auth.notion import is_signed_in, notion_client, notion_store, stopped_working
+from jarvis.brain.context import JarvisContext
 from jarvis.config import Settings
 from jarvis.tools.files import preview
 
@@ -131,7 +132,7 @@ def writes_over(client: Client) -> list[BaseTool]:
 
     @tool(parse_docstring=True)
     async def create_notion_page(
-        title: str, content: str, runtime: ToolRuntime, parent: str | None = None
+        title: str, content: str, runtime: ToolRuntime[JarvisContext], parent: str | None = None
     ) -> dict[str, Any]:
         """Create a Notion page. The user confirms before it's created.
 
@@ -153,7 +154,9 @@ def writes_over(client: Client) -> list[BaseTool]:
         return {"created": {"title": title, "where": place, "url": first_page_url(text)}}
 
     @tool(parse_docstring=True)
-    async def add_to_notion_page(page: str, content: str, runtime: ToolRuntime) -> dict[str, Any]:
+    async def add_to_notion_page(
+        page: str, content: str, runtime: ToolRuntime[JarvisContext]
+    ) -> dict[str, Any]:
         """Add content to the end of a Notion page; nothing already there changes. The user
         confirms first.
 
@@ -172,7 +175,7 @@ def writes_over(client: Client) -> list[BaseTool]:
 
     @tool(parse_docstring=True)
     async def move_notion_pages(
-        pages: list[str], runtime: ToolRuntime, new_parent: str | None = None
+        pages: list[str], runtime: ToolRuntime[JarvisContext], new_parent: str | None = None
     ) -> dict[str, Any]:
         """Move Notion pages under another page; nothing on them changes. The user confirms
         first.

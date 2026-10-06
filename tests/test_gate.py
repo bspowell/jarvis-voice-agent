@@ -15,6 +15,7 @@ from jarvis.voice.gate import (
     Gate,
     Timing,
     cuts_in,
+    ends_conversation,
     only_cut_in_words,
     only_wake_words,
     sounds_like,
@@ -50,11 +51,13 @@ class Session:
         self.interrupted = 0
         self.question = False  # is "Shall I…?" waiting for an answer?
         self.he_said = ""
+        self.awake: list[bool] = []  # what the orb was told: woke (True), fell asleep (False)
         self.gate = Gate(
             self.open_ears,
             interrupt=self.interrupt,
             question_open=lambda: self.question,
             his_words=lambda: self.he_said,
+            awake_changed=self.awake.append,
             timing=FAST,
         )
         self.mic: asyncio.Queue[rtc.AudioFrame | None] = asyncio.Queue()
@@ -178,6 +181,15 @@ async def test_hey_jarvis_then_nothing_goes_back_to_sleep():
         assert len(session.flux) == 2
 
 
+async def test_the_orb_hears_when_he_wakes_and_when_he_sleeps():
+    async with Session() as session:
+        await session.say(frame(WAKE))
+        await session.he_is("listening")
+        assert session.awake == [True]
+        await asyncio.sleep(FAST.after_wake * 1.5)
+        assert session.awake == [True, False]
+
+
 async def test_he_never_falls_asleep_mid_reply():
     async with Session() as session:
         await session.say(frame(WAKE))
@@ -297,14 +309,43 @@ async def test_jarvis_stop_or_wait_cut_him_off_and_reach_livekit(words):
     assert heard(session.livekit) == ["start", f"interim: {words}", f"final: {words}", "end"]
 
 
-async def test_the_spotter_stops_him_before_flux_has_heard_you():
+async def test_stop_over_him_ends_the_conversation_at_once():
     async with Session() as session:
         await awake_and_speaking(session)
-        await session.say(frame(STOP))
+        await session.say(frame(STOP))  # the spotter, on your Mac, before Flux has heard it
         assert session.interrupted == 1
-        # LiveKit lags a moment: Flux's turn may start while he still counts as speaking
-        await session.flux_hears(start(), final("Stop."), end())
-    assert heard(session.livekit) == ["start", "final: Stop.", "end"]
+        assert not session.gate.awake
+        assert session.ears.closed  # whatever Flux was about to hear is never heard
+        assert session.awake == [True, False]
+    assert session.livekit == []
+
+
+async def test_a_turn_under_way_when_you_say_stop_is_closed_and_dropped():
+    async with Session() as session:
+        await session.say(frame(WAKE))
+        await session.he_is("listening")
+        await session.flux_hears(start(), final("Did you see the game"))  # someone nearby
+        session.gate.end_conversation("you said “stop”")
+        assert not session.gate.awake
+        assert session.gate.drop_turn  # the agent won't answer it
+    assert heard(session.livekit) == ["start", "final: Did you see the game", "end"]
+
+
+@pytest.mark.parametrize(
+    ("words", "ends"),
+    [
+        ("Stop.", True),
+        ("Jarvis, stop.", True),
+        ("Hey Jarvis, stop.", True),
+        ("Stop it, Jarvis.", True),
+        ("Yeah, I think so. Jarvis, stop.", True),
+        ("Where's the nearest bus stop?", False),
+        ("Wait.", False),
+        ("Jarvis, what's the weather?", False),
+    ],
+)
+def test_only_stop_first_or_by_his_name_ends_the_conversation(words, ends):
+    assert ends_conversation(words) is ends
 
 
 async def test_the_spotter_releases_a_turn_flux_had_started():

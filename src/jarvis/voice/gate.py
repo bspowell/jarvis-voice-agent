@@ -8,12 +8,14 @@ Deepgram Flux (his ears) and which of Flux's words reach LiveKit:
 - While he speaks (echo guard): your words stop him only if they name him ("…, Jarvis?") or
   start with "stop" or "wait" (the spotter hears "Hey Jarvis" and "stop" before Flux does).
   Anything else said over him is ignored, and his own voice leaking back is dropped.
+- "Stop" ends the conversation: he stops talking and listening, and a turn already under way
+  (someone talking nearby) is dropped. "Wait" only stops him talking.
 - Quiet: 6 s after he answers (10 s after "Shall I…?", 8 s after the wake word alone) → asleep.
 """
 
 import asyncio
+import itertools
 import logging
-import math
 import re
 import time
 from collections import deque
@@ -22,11 +24,11 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from enum import Enum
 
-import numpy as np
 from livekit import rtc
 from livekit.agents import stt
 
-from jarvis.voice.spotter import WAKE, Spotter
+from jarvis.voice.audio import decibels
+from jarvis.voice.spotter import STOP, WAKE, Spotter
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +76,14 @@ class Gate:
         interrupt: Callable[[], None],
         question_open: Callable[[], bool],
         his_words: Callable[[], str],
+        awake_changed: Callable[[bool], None] = lambda awake: None,
         timing: Timing | None = None,
     ) -> None:
         self.open_ears = open_ears  # a new Flux stream
         self.interrupt = interrupt  # stop him talking, now
         self.question_open = question_open  # is "Shall I…?" waiting for an answer?
         self.his_words = his_words  # what he said lately (to recognise his echo)
+        self.awake_changed = awake_changed  # he woke (True) or fell asleep (False): for the orb
         self.timing = timing or Timing()
         self.ears: stt.RecognizeStream | None = None  # Flux, while awake
         self.events: asyncio.Queue[stt.SpeechEvent | None] | None = None  # to LiveKit
@@ -97,6 +101,7 @@ class Gate:
         self.finished: Finished | None = None  # your latest finished turn
         self.flux_behind = False  # has the log said Flux is lagging? (once, until it catches up)
         self.pass_next_turn = False  # you cut in before Flux heard you: let your turn through
+        self.drop_turn = False  # "stop" cut off a turn LiveKit had heard start: don't answer it
         self.quiet_timer: asyncio.TimerHandle | None = None
         self.closing: set[asyncio.Task[None]] = set()
 
@@ -145,14 +150,18 @@ class Gate:
             self.react(spotter.hear(frame))
 
     def react(self, heard: set[str]) -> None:
-        """The spotter heard a wake word: wake up, or cut him off."""
+        """The spotter heard a wake word: wake up, or cut him off. "Stop" while he's quiet means
+        nothing here ("the bus stop"): only a turn that is just "stop" ends the conversation."""
         if not heard:
             return
         if not self.awake:
             if WAKE in heard:
                 self.wake("heard “Hey Jarvis”", pre_roll=True)
         elif self.he_is_speaking:
-            self.cut_in(f"heard “{', '.join(sorted(heard))}”")
+            if STOP in heard:
+                self.end_conversation("heard “stop”")
+            else:
+                self.cut_in("heard “Hey Jarvis”")
 
     def agent_state_changed(self, state: str) -> None:
         """LiveKit's agent state (from the session's `agent_state_changed` event)."""
@@ -181,9 +190,20 @@ class Gate:
         self.turn = Turn.PASS
         self.held = []
         self.pass_next_turn = False
+        self.drop_turn = False
         self.hearing = asyncio.create_task(self.hear_from(ears))
         logger.info("Listening (%s).", reason)
+        self.awake_changed(True)
         self.update_quiet_timer()
+
+    def end_conversation(self, reason: str) -> None:
+        """You said "stop": he stops talking and stops listening, at once. A turn LiveKit has
+        heard start (often someone else talking nearby) is closed and marked to be dropped."""
+        logger.info("Conversation over: %s.", reason)
+        if self.he_is_speaking:
+            self.interrupt()
+        self.drop_turn = self.you_talking and self.turn is Turn.PASS
+        self.sleep(reason)
 
     def sleep(self, reason: str) -> None:
         """Close Flux; only the spotter listens again."""
@@ -199,6 +219,7 @@ class Gate:
         self.closing.add(closing)
         closing.add_done_callback(self.closing.discard)
         logger.info("Asleep (%s).", reason)
+        self.awake_changed(False)
 
     async def hear_from(self, ears: stt.RecognizeStream) -> None:
         """Pass Flux's events through the gate until the stream closes."""
@@ -320,7 +341,7 @@ def from_your_voice(frames: list[rtc.AudioFrame], lead_in: float) -> list[rtc.Au
     """The pre-roll from just before you spoke: of the silence before your voice, only
     `lead_in` seconds are kept. Flux catches up on the pre-roll only a little faster than real
     time, so every second it skips is a second sooner for your first reply."""
-    levels = [loudness(frame) for frame in frames]
+    levels = [decibels(frame) for frame in frames]
     voice = min(levels, default=0.0) + SPEECH_RISE
     start = next((i for i, level in enumerate(levels) if level > voice), 0)  # none: keep all
     kept = 0.0
@@ -328,13 +349,6 @@ def from_your_voice(frames: list[rtc.AudioFrame], lead_in: float) -> list[rtc.Au
         start -= 1
         kept += frames[start].duration
     return frames[start:]
-
-
-def loudness(frame: rtc.AudioFrame) -> float:
-    """How loud a frame is, in dB below full scale (silence: -100)."""
-    samples = np.frombuffer(frame.data, dtype=np.int16).astype(np.float32)
-    rms = math.sqrt(float(np.mean(samples**2))) if samples.size else 0.0
-    return 20 * math.log10(max(rms / 32768, 1e-5))
 
 
 def words(text: str) -> list[str]:
@@ -353,6 +367,15 @@ def cuts_in(text: str) -> bool:
     return bool(said) and said[0] in CUT_IN_WORDS
 
 
+def ends_conversation(text: str) -> bool:
+    """Is it "stop"? First ("Stop.", "Hey Jarvis, stop", "Stop the music") or right by his name
+    ("…, Jarvis, stop"). Anywhere else it's an ordinary word ("Where's the bus stop?")."""
+    said = words(text)
+    first = next((word for word in said if word not in WAKE_WORDS), None)
+    by_his_name = any({a, b} == {"jarvis", "stop"} for a, b in itertools.pairwise(said))
+    return first == "stop" or by_his_name
+
+
 def only_wake_words(text: str) -> bool:
     """Just "Hey Jarvis" (or "Jarvis"), nothing asked yet."""
     said = words(text)
@@ -360,7 +383,7 @@ def only_wake_words(text: str) -> bool:
 
 
 def only_cut_in_words(text: str) -> bool:
-    """Just "stop" or "wait" (maybe with his name): nothing to answer."""
+    """Just "wait" (or "stop", maybe with his name): nothing to answer."""
     said = words(text)
     return bool(said) and set(said) <= WAKE_WORDS | CUT_IN_WORDS
 

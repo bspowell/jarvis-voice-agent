@@ -28,6 +28,7 @@ dependencies = [
     "pymicro-wakeword>=2.5.0",
     "livekit-api>=1.2.1",
     "numpy>=2.5.3",
+    "pyobjc-framework-webkit>=12.2.2 ; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

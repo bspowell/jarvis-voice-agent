@@ -29,6 +29,7 @@ from langgraph.graph.state import CompiledStateGraph
 from jarvis.agents.writes import needs_approval, with_receipts
 from jarvis.auth.notion import is_signed_in
 from jarvis.brain.brain import timestamped
+from jarvis.brain.context import JarvisContext
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
 from jarvis.events import Event
@@ -95,7 +96,7 @@ def make_notes_tool(settings: Settings) -> BaseTool:
     """Wrap the Notes agent as the `notes_agent` tool that Jarvis calls."""
 
     @tool(parse_docstring=True)
-    async def notes_agent(request: str, runtime: ToolRuntime) -> str:
+    async def notes_agent(request: str, runtime: ToolRuntime[JarvisContext]) -> str:
         """Ask your Notes agent about the user's notes, in Notion or in files on their Mac:
         finding and reading them, writing new ones, adding to them, or moving Notion pages
         under other pages. It reports back briefly.

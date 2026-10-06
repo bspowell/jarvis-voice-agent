@@ -187,11 +187,15 @@ def logout(service: ServiceArgument = Service.google) -> None:
 
 
 @app.command()
-def desktop() -> None:
-    """The desktop app: talk to Jarvis with your mic and speakers (he must be running)."""
+def desktop(
+    demo: Annotated[
+        bool, typer.Option(help="Show the orb's looks with a pretend voice (no Jarvis needed).")
+    ] = False,
+) -> None:
+    """The desktop app: the orb, and Jarvis on your mic and speakers (he must be running)."""
     from jarvis.desktop.app import run_desktop  # loads LiveKit: only when asked
 
-    run_desktop(get_settings())
+    run_desktop(get_settings(), demo=demo)
 
 
 @app.command()

@@ -3,6 +3,7 @@
 Text chat and the voice agent both call it. Callers send text in and get Jarvis's reply back as a
 stream of text chunks; they never touch LangGraph directly.
 Events from tools (e.g. "the search agent started") arrive on `brain.events` as they happen.
+A front end with an orb plugs its controls into `brain.display`; tools get them each turn.
 When a change needs your OK, the reply ends with a "Shall I…?", and your next message is read
 as the answer (see `approvals.py`).
 """
@@ -17,6 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Interrupt
 
 from jarvis.brain.approvals import Approvals, Question, descriptions
+from jarvis.brain.context import Display, JarvisContext
 from jarvis.brain.memory import daily_thread_id
 from jarvis.events import Event, EventBus
 
@@ -40,6 +42,7 @@ class Brain:
         self.new_day_hour = new_day_hour
         self.approvals = approvals  # asks "Shall I…?" before any change and reads your answer
         self.events = EventBus()  # chat and voice subscribe to show what's happening
+        self.display: Display | None = None  # the orb's controls (the voice agent plugs them in)
         self.question: Question | None = None  # a "Shall I…?" waiting for your answer
 
     def config(self, now: datetime | None = None) -> RunnableConfig:
@@ -89,6 +92,7 @@ class Brain:
         async for chunk in self.agent.astream(
             graph_input,
             config,
+            context=JarvisContext(display=self.display),  # live things for tools (not saved)
             # His words + events tools write + each step's update (where pauses show up).
             stream_mode=["messages", "custom", "updates"],
             version="v2",

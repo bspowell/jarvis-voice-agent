@@ -1,11 +1,13 @@
-"""The desktop's line to Jarvis: the room it joins, and the invitation in its token."""
+"""The desktop's line to Jarvis: the room it joins, its token, and what it tells the orb."""
 
 from datetime import datetime
 
-from livekit import api
+import pytest
+from livekit import api, rtc
 
 from jarvis.config import Settings
-from jarvis.desktop.room_client import IDENTITY, invite, room_name
+from jarvis.desktop.room_client import AGENT_STATE, IDENTITY, RoomClient, invite, level, room_name
+from jarvis.display import AWAKE, DISPLAY_METHOD, DisplayCommand
 from jarvis.voice import AGENT_NAME
 
 
@@ -23,3 +25,55 @@ def test_the_token_lets_you_in_and_invites_jarvis():
     assert claims.identity == IDENTITY
     assert claims.video.room_join and claims.video.room == "jarvis-1005-1612-3fa2"
     assert [agent.agent_name for agent in claims.room_config.agents] == [AGENT_NAME]
+
+
+# --- The orb ---
+class FakeOrb:
+    """Records what the orb was shown and asked to do."""
+
+    def __init__(self) -> None:
+        self.shown: list[dict] = []
+        self.commands: list[DisplayCommand] = []
+
+    def update(self, **fields) -> None:
+        self.shown.append(fields)
+
+    async def apply(self, command: DisplayCommand) -> str:
+        self.commands.append(command)
+        return "The orb is hidden."
+
+
+def client_with(orb: FakeOrb) -> RoomClient:
+    return RoomClient(Settings(_env_file=None), orb=orb)
+
+
+def display_call(payload: str) -> rtc.RpcInvocationData:
+    return rtc.RpcInvocationData("call-1", "agent-1", payload, 3.0, DISPLAY_METHOD)
+
+
+def test_his_voice_level_runs_from_quiet_to_his_loudest():
+    assert level(-80) == level(-50) == 0
+    assert level(-31) == 0.5
+    assert level(-12) == level(0) == 1
+
+
+def test_the_orb_shows_his_state_and_whether_he_is_awake():
+    orb = FakeOrb()
+    client = client_with(orb)
+    client.show_attributes({AGENT_STATE: "thinking"})
+    client.show_attributes({AWAKE: "true", "someone.else": "x"})
+    client.show_attributes({AWAKE: "false"})
+    assert orb.shown == [{"state": "thinking"}, {"awake": True}, {"awake": False}]
+    assert client.agent_state == "thinking"
+
+
+async def test_display_commands_reach_the_orb_and_its_answer_goes_back():
+    orb = FakeOrb()
+    answer = await client_with(orb).on_display(display_call(DisplayCommand("hide").to_json()))
+    assert answer == "The orb is hidden."
+    assert orb.commands == [DisplayCommand("hide")]
+
+
+async def test_a_garbled_display_command_is_refused():
+    with pytest.raises(rtc.RpcError):
+        await client_with(FakeOrb()).on_display(display_call('{"action": "explode"}'))

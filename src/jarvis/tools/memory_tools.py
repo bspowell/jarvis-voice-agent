@@ -12,12 +12,14 @@ from uuid import uuid4
 from langchain.tools import ToolRuntime, tool
 from langgraph.store.base import BaseStore
 
+from jarvis.brain.context import JarvisContext
+
 FACTS = ("facts",)  # the store's folder ("namespace") for facts about the user
 RECALL_LIMIT = 100  # facts are saved only on request, so they stay few
 
 
 @tool(parse_docstring=True)
-async def remember_fact(fact: str, runtime: ToolRuntime) -> dict[str, str]:
+async def remember_fact(fact: str, runtime: ToolRuntime[JarvisContext]) -> dict[str, str]:
     """Save a fact about the user for future days. Only when they ask you to remember it.
 
     Args:
@@ -27,13 +29,13 @@ async def remember_fact(fact: str, runtime: ToolRuntime) -> dict[str, str]:
 
 
 @tool
-async def recall_facts(runtime: ToolRuntime) -> dict[str, Any]:
+async def recall_facts(runtime: ToolRuntime[JarvisContext]) -> dict[str, Any]:
     """List every fact the user asked you to remember, newest first."""
     return await list_facts(store_of(runtime))
 
 
 @tool(parse_docstring=True)
-async def forget_fact(fact_id: str, runtime: ToolRuntime) -> dict[str, str]:
+async def forget_fact(fact_id: str, runtime: ToolRuntime[JarvisContext]) -> dict[str, str]:
     """Delete a saved fact when the user asks you to forget it.
 
     Args:
@@ -42,7 +44,7 @@ async def forget_fact(fact_id: str, runtime: ToolRuntime) -> dict[str, str]:
     return await delete_fact(store_of(runtime), fact_id)
 
 
-def store_of(runtime: ToolRuntime) -> BaseStore:
+def store_of(runtime: ToolRuntime[JarvisContext]) -> BaseStore:
     if runtime.store is None:  # a wiring bug, not something to explain to the user
         raise RuntimeError("Jarvis was built without a store; pass one to build_jarvis().")
     return runtime.store

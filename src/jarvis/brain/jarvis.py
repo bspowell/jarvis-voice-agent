@@ -10,10 +10,12 @@ from langgraph.store.base import BaseStore
 from jarvis.agents.registry import agent_tools
 from jarvis.brain.approvals import Approvals
 from jarvis.brain.brain import Brain
+from jarvis.brain.context import JarvisContext
 from jarvis.brain.memory import Memory, RepairInterruptedToolCalls, summarize_long_days
 from jarvis.brain.models import make_model
 from jarvis.config import Settings
 from jarvis.prompts import load_prompt
+from jarvis.tools.display import display_orb
 from jarvis.tools.errors import explain_tool_error
 from jarvis.tools.memory_tools import forget_fact, recall_facts, remember_fact
 from jarvis.tools.weather import get_weather
@@ -28,8 +30,12 @@ def build_jarvis(
     return create_agent(
         model=make_model(settings.models.jarvis),
         # His own quick tools, then one tool per sub-agent (e.g. search_agent).
-        tools=[get_weather, remember_fact, recall_facts, forget_fact, *agent_tools(settings)],
+        tools=[
+            *(get_weather, remember_fact, recall_facts, forget_fact, display_orb),
+            *agent_tools(settings),
+        ],
         system_prompt=load_prompt("jarvis"),
+        context_schema=JarvisContext,  # what each run hands his tools (e.g. the orb's controls)
         # Middleware wraps each step of the loop, in this order:
         middleware=[
             RepairInterruptedToolCalls(),  # a turn cut off mid-tool can't break the rest of the day

@@ -10,15 +10,25 @@ from types import SimpleNamespace
 
 import pytest
 from fakes import FakeFlux, FakeMic, FakeSpotter, FakeVoice, end, final, frame, start
+from livekit import rtc
 from livekit.agents import AgentSession, ModelSettings, SpeechCreatedEvent, llm
 from livekit.agents.voice import SpeechHandle
 
 from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
+from jarvis.display import AWAKE, DESKTOP, DISPLAY_METHOD, DisplayCommand
 from jarvis.events import Event, EventBus
 from jarvis.voice import jarvis_agent
 from jarvis.voice.gate import Finished
-from jarvis.voice.jarvis_agent import SNAG, BrainLLM, JarvisAgent, latency, your_words
+from jarvis.voice.jarvis_agent import (
+    DISPLAY_SECONDS,
+    NO_DESKTOP,
+    SNAG,
+    BrainLLM,
+    JarvisAgent,
+    latency,
+    your_words,
+)
 from jarvis.voice.phrases import Phrases
 from jarvis.voice.spotter import WAKE
 from jarvis.voice.worker import TURNS
@@ -57,9 +67,32 @@ class FakeBrain:
         self.question = None
 
 
-def make_agent(brain: FakeBrain, tmp_path) -> JarvisAgent:
+class FakeRoom:
+    """Just enough of a LiveKit room: who's in it, and what the agent sends through it."""
+
+    def __init__(self, *, desktop: bool = True, answer: str | Exception = "Done.") -> None:
+        self.remote_participants = {DESKTOP: object()} if desktop else {}
+        self.local_participant = self  # the agent's side: sets attributes, makes calls
+        self.answer = answer  # the desktop app's reply to a call
+        self.attributes: list[dict[str, str]] = []
+        self.calls: list[dict] = []
+
+    def isconnected(self) -> bool:
+        return True
+
+    async def set_attributes(self, attributes: dict[str, str]) -> None:
+        self.attributes.append(attributes)
+
+    async def perform_rpc(self, **call) -> str:
+        self.calls.append(call)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+def make_agent(brain: FakeBrain, tmp_path, room: FakeRoom | None = None) -> JarvisAgent:
     phrases = Phrases(tmp_path, FakeVoice(), voice_name="test")
-    return JarvisAgent(brain, Settings(_env_file=None), GREETING, phrases)
+    return JarvisAgent(brain, Settings(_env_file=None), GREETING, phrases, room=room)
 
 
 @asynccontextmanager
@@ -247,7 +280,7 @@ async def spoken_session(brain: FakeBrain, tmp_path, monkeypatch):
 
         monkeypatch.setattr(agent, "on_user_turn_completed", on_user_turn_completed)
         await session.start(agent)
-        yield SimpleNamespace(mic=mic, flux=flux, said=said, turns=turns)
+        yield SimpleNamespace(mic=mic, flux=flux, said=said, turns=turns, agent=agent)
 
 
 async def wake_and_say(voice: SimpleNamespace, words: str) -> None:
@@ -275,14 +308,81 @@ async def test_hey_jarvis_alone_gets_sir_and_the_brain_hears_nothing(tmp_path, m
     assert brain.heard == []
 
 
-async def test_stop_alone_gets_no_reply(tmp_path, monkeypatch):
+async def test_stop_ends_the_conversation(tmp_path, monkeypatch):
     brain = FakeBrain(["Half past three, sir."])
     async with spoken_session(brain, tmp_path, monkeypatch) as voice:
         await wake_and_say(voice, "Stop.")
         # LiveKit waits 0.3 s before closing a turn; words before then join it ("Stop. What's…")
         await wait_until(lambda: voice.turns)
-        await wake_and_say(voice, "What's the time?")
+        await wait_until(lambda: voice.flux.streams[-1].closed)  # he has stopped listening
+        await wake_and_say(voice, "What's the time?")  # so this takes "Hey Jarvis" again
         await wait_until(lambda: brain.heard)
     assert voice.turns == ["Stop.", "What's the time?"]
     assert brain.heard == ["What's the time?"]  # "Stop." never reached him
+    assert len(voice.flux.streams) == 2
     assert voice.said == []
+
+
+async def test_wait_alone_gets_no_reply_and_he_keeps_listening(tmp_path, monkeypatch):
+    brain = FakeBrain(["Half past three, sir."])
+    async with spoken_session(brain, tmp_path, monkeypatch) as voice:
+        await wake_and_say(voice, "Wait.")
+        await wait_until(lambda: voice.turns)
+        assert not voice.flux.streams[-1].closed
+        await wake_and_say(voice, "What's the time?")  # no "Hey Jarvis" needed
+        await wait_until(lambda: brain.heard)
+    assert brain.heard == ["What's the time?"]
+    assert len(voice.flux.streams) == 1
+
+
+async def test_a_turn_cut_off_by_stop_is_never_answered(tmp_path, monkeypatch):
+    brain = FakeBrain(["Not a fan, sir."])
+    async with spoken_session(brain, tmp_path, monkeypatch) as voice:
+        voice.mic.say(frame(), frame(WAKE))
+        await wait_until(lambda: voice.flux.streams)
+        voice.flux.streams[-1].hears(start(), final("Did you see the game"))  # someone nearby
+        await asyncio.sleep(0.05)
+        voice.agent.gate.end_conversation("you said “stop”")
+        await wait_until(lambda: voice.turns)
+        await asyncio.sleep(0.1)
+    assert voice.turns == ["Did you see the game"]
+    assert brain.heard == []
+
+
+# --- The orb ---
+async def test_display_commands_go_to_the_desktop_and_its_answer_comes_back(tmp_path):
+    room = FakeRoom(answer="The orb is hidden.")
+    brain = FakeBrain()
+    make_agent(brain, tmp_path, room)
+    assert await brain.display(DisplayCommand("hide")) == "The orb is hidden."
+    assert room.calls == [
+        {
+            "destination_identity": DESKTOP,
+            "method": DISPLAY_METHOD,
+            "payload": DisplayCommand("hide").to_json(),
+            "response_timeout": DISPLAY_SECONDS,
+        }
+    ]
+
+
+async def test_with_no_desktop_app_the_tool_hears_there_is_no_orb(tmp_path):
+    for room in (FakeRoom(desktop=False), None):  # the desktop app is closed / the console
+        brain = FakeBrain()
+        make_agent(brain, tmp_path, room)
+        assert await brain.display(DisplayCommand("hide")) == NO_DESKTOP
+
+
+async def test_a_failed_display_command_is_reported_not_raised(tmp_path):
+    timeout = rtc.RpcError(rtc.RpcError.ErrorCode.RESPONSE_TIMEOUT, "Response timeout")
+    brain = FakeBrain()
+    make_agent(brain, tmp_path, FakeRoom(answer=timeout))
+    assert "Response timeout" in await brain.display(DisplayCommand("hide"))
+
+
+async def test_the_room_hears_when_he_wakes_and_sleeps(tmp_path):
+    room = FakeRoom()
+    agent = make_agent(FakeBrain(), tmp_path, room)
+    agent.show_awake(True)
+    agent.show_awake(False)
+    await asyncio.sleep(0)
+    assert room.attributes == [{AWAKE: "true"}, {AWAKE: "false"}]

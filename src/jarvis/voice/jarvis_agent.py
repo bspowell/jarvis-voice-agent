@@ -4,12 +4,14 @@ LiveKit listens (Deepgram Flux), hears when you've finished, and speaks (ElevenL
 it calls `llm_node`: ours sends your words to `Brain.turn()` and streams his reply straight to the
 voice, so he starts talking after his first few words. LiveKit's own LLM is only a stand-in.
 Before any of that, `stt_node` runs your mic through the wake-word gate (gate.py).
+For the orb, he tells the room whether he's awake, and carries the display tool's commands to the
+desktop app (an RPC: the desktop does it and says what it did).
 """
 
 import asyncio
 import logging
 from collections import deque
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Coroutine
 from contextlib import suppress
 from typing import Any
 
@@ -32,14 +34,24 @@ from jarvis.auth.accounts import ACCOUNTS, Service, sign_in
 from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
+from jarvis.display import AWAKE, DESKTOP, DISPLAY_METHOD, DisplayCommand
 from jarvis.events import Event
-from jarvis.voice.gate import Finished, Gate, Timing, only_cut_in_words, only_wake_words
+from jarvis.voice.gate import (
+    Finished,
+    Gate,
+    Timing,
+    ends_conversation,
+    only_cut_in_words,
+    only_wake_words,
+)
 from jarvis.voice.phrases import Phrases, fixed_line
 from jarvis.voice.spotter import Spotter
 
 logger = logging.getLogger(__name__)
 
 SNAG = "My apologies, sir, I've hit a snag. Do try that again."  # said when a turn fails
+DISPLAY_SECONDS = 3.0  # how long the desktop app may take to show, hide or move the orb
+NO_DESKTOP = "The desktop app isn't connected, so there's no orb to change."
 
 
 class BrainLLM(llm.LLM):
@@ -86,10 +98,18 @@ class Reply:
 class JarvisAgent(Agent):
     """Jarvis's voice. What he says comes from the Brain; his fixed lines come from recordings."""
 
-    def __init__(self, brain: Brain, settings: Settings, greeting: str, phrases: Phrases) -> None:
+    def __init__(
+        self,
+        brain: Brain,
+        settings: Settings,
+        greeting: str,
+        phrases: Phrases,
+        room: rtc.Room | None = None,
+    ) -> None:
         super().__init__(instructions="Unused: Jarvis's personality and tools live in his Brain.")
         self.brain = brain
         self.settings = settings
+        self.room = room  # the desktop app is in it (none in the console or tests)
         self.greeting = greeting
         self.phrases = phrases
         self.fixed_lines = {FILLER, SIR, greeting}
@@ -99,7 +119,7 @@ class JarvisAgent(Agent):
         self.question_speech: SpeechHandle | None = None  # the reply that asked "Shall I…?"
         self.sign_ins_needed: set[Service] = set()
         self.signing_in: set[Service] = set()
-        self.background: set[asyncio.Task[None]] = set()
+        self.background: set[asyncio.Task[Any]] = set()
         self.said: deque[str] = deque(maxlen=200)  # his latest words: the gate spots his echo
         self.answering: Finished | None = None  # the spoken turn being answered (to time it)
         self.gate = Gate(
@@ -107,9 +127,11 @@ class JarvisAgent(Agent):
             interrupt=self.stop_talking,
             question_open=lambda: brain.question is not None,
             his_words=lambda: "".join(self.said),
+            awake_changed=self.show_awake,
             timing=Timing(follow_up=settings.voice.follow_up_seconds),
         )
         brain.events.subscribe(self.on_brain_event)
+        brain.display = self.show_on_desktop  # the display tool's way to the orb
 
     async def on_enter(self) -> None:
         self.session.on("speech_created", self.on_speech_created)
@@ -159,11 +181,41 @@ class JarvisAgent(Agent):
         with suppress(RuntimeError):  # nothing is playing
             self.session.interrupt()
 
+    # --- The orb (in the desktop app) ---
+    def show_awake(self, awake: bool) -> None:
+        """The gate woke or fell asleep: tell the room, so the orb grows or shrinks."""
+        if self.room is not None and self.room.isconnected():
+            change = self.room.local_participant.set_attributes({AWAKE: str(awake).lower()})
+            self.in_background(change)
+
+    async def show_on_desktop(self, command: DisplayCommand) -> str:
+        """Show, hide or move the orb: the desktop app does it and says what it did."""
+        room = self.room
+        if room is None or not room.isconnected() or DESKTOP not in room.remote_participants:
+            return NO_DESKTOP
+        try:
+            return await room.local_participant.perform_rpc(
+                destination_identity=DESKTOP,
+                method=DISPLAY_METHOD,
+                payload=command.to_json(),
+                response_timeout=DISPLAY_SECONDS,
+            )
+        except rtc.RpcError as error:
+            logger.warning("The desktop app couldn't change the orb: %s", error.message)
+            return f"The desktop app couldn't do it: {error.message}"
+
     async def on_user_turn_completed(
         self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
     ) -> None:
-        """You've finished a spoken turn. Just "Hey Jarvis" gets "Sir?"; just "stop", silence."""
+        """You've finished a spoken turn. "Stop" ends the conversation (he stops listening); just
+        "Hey Jarvis" gets "Sir?"; just "wait", silence (he keeps listening)."""
         words = new_message.text_content or ""
+        if self.gate.drop_turn:  # cut off by "stop": not meant for him
+            self.gate.drop_turn = False
+            raise StopResponse()
+        if ends_conversation(words):
+            self.gate.end_conversation("you said “stop”")
+            raise StopResponse()
         if only_wake_words(words):
             self.session.say(SIR, add_to_chat_ctx=False)
             raise StopResponse()
@@ -222,10 +274,13 @@ class JarvisAgent(Agent):
         """Open the browser for each sign-in this reply needs (chat shows a button instead)."""
         for service in self.sign_ins_needed - self.signing_in:
             self.signing_in.add(service)
-            task = asyncio.create_task(self.sign_in(service))
-            self.background.add(task)
-            task.add_done_callback(self.background.discard)
+            self.in_background(self.sign_in(service))
         self.sign_ins_needed.clear()
+
+    def in_background(self, work: Coroutine[Any, Any, Any]) -> None:
+        task = asyncio.create_task(work)
+        self.background.add(task)  # kept until done: asyncio holds tasks only weakly
+        task.add_done_callback(self.background.discard)
 
     async def sign_in(self, service: Service) -> None:
         """Wait for you in the browser; once you're in, carry on with your request."""

@@ -4,11 +4,11 @@
 - **Ears**: "Hey Jarvis" heard on your Mac (openWakeWord) → opens speech-to-text + end of turn (Deepgram Flux)
 - **Brain**: Jarvis orchestrator (Sonnet 5) → sub-agents (Notes, Calendar + Tasks, Search) → tools
 - **Mouth**: text-to-speech (ElevenLabs Jarvis voice, `eleven_v4_turbo`; Kokoro offline fallback)
-- **Face**: holographic orb overlay + info cards
+- **Face**: the orb, a holographic overlay on your screen (AppKit window + WebGL); info cards next (Phase 11)
 
 ```
 Desktop app (mic, speakers) ⇄ LiveKit server (on your Mac) ⇄ Voice agent (ears + mouth) → Brain
-`jarvis up` starts all three · the orb overlay joins the desktop app in Phase 10
+`jarvis up` starts all three · the orb lives in the desktop app
 Text mode: `jarvis chat` → Brain directly
 ```
 
@@ -19,13 +19,14 @@ Text mode: `jarvis chat` → Brain directly
 | `src/jarvis/config.py` | Typed settings: secrets from `.env`, preferences from `jarvis.toml` |
 | `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat` (incl. the sign-in buttons), `up` (everything voice needs), `desktop` (the desktop app alone), `login` / `logout` (`google` or `notion`), `doctor` (keys, sign-ins, models, sub-agent health, voice + LiveKit server) |
 | `src/jarvis/up.py` | `jarvis up`: starts the LiveKit server, the voice agent and the desktop app in order, tags their output (also saved to `data/logs/up.log`), stops them in reverse |
-| `src/jarvis/desktop/` | The desktop app: `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog) · `app.py` (runs it; the orb comes in Phase 10) |
+| `src/jarvis/desktop/` | The desktop app: `app.py` (the orb's window on the main thread, your line to Jarvis on its own thread) · `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog; tells the orb his state, whether he's awake and his voice level; answers his display commands) · `overlay.py` (the see-through, click-through window; remembers where it is and its centrepiece) · `demo.py` (`jarvis desktop --demo`) · `web/` (the orb: `orb.html`, `orb.js` = rings + WebGL, `cores.js` = the 3D centrepieces) |
+| `src/jarvis/display.py` | The orb's display commands (show / hide / move / switch), shared by the tool, the voice agent and the desktop app |
 | `src/jarvis/events.py` | Event bus: tools announce what's happening (e.g. a sub-agent started); chat / voice / orb decide how to show it |
 | `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality · `search_agent.md` · `calendar_agent.md` · `notes_agent.md` · `approval_question.md` / `approval_reply.md` = asking "Shall I…?" and reading the answer · `summary.md` = how long days are condensed) |
-| `src/jarvis/brain/` | `models.py` (model settings) · `jarvis.py` (the agent) · `brain.py` (the doorway) · `approvals.py` (confirmations) · `memory.py` (SQLite memory + its middleware) · `greeting.py` · `graph.py` (Studio entry) |
+| `src/jarvis/brain/` | `models.py` (model settings) · `jarvis.py` (the agent) · `brain.py` (the doorway) · `context.py` (what each run hands his tools: the orb's controls) · `approvals.py` (confirmations) · `memory.py` (SQLite memory + its middleware) · `greeting.py` · `graph.py` (Studio entry) |
 | `src/jarvis/agents/` | Sub-agents, each wrapped as one tool for Jarvis: `search.py` · `calendar.py` (events + to-dos) · `notes.py` (Notion + files) · `writes.py` (approvals + receipts, shared) · `registry.py` (the list + roll call) |
-| `src/jarvis/tools/` | Tools the model can call: `weather.py` · `location.py` (home city / IP / place names) · `memory_tools.py` (remember / recall / forget) · `web_search.py` (Firecrawl, for the Search agent) · `google_calendar.py` + `google_tasks.py` (for the Calendar agent) · `notion.py` (Notion's MCP tools + ours) · `files.py` (the sandbox) · `errors.py` |
-| `src/jarvis/voice/` | The voice agent (LiveKit): `worker.py` (one session: memory, roll call, pipeline) · `jarvis_agent.py` (`stt_node` → the gate, `llm_node` → Brain, filler, unheard questions, sign-ins) · `gate.py` (the wake-word gate: Flux on/off, follow-ups, echo guard) · `spotter.py` (wake words on your Mac) + `wakewords/` (the "stop" model) · `speech.py` (Flux + ElevenLabs) · `kokoro_tts.py` (offline fallback voice) · `phrases.py` (recorded fixed lines) · `health.py` (`doctor` checks) |
+| `src/jarvis/tools/` | Tools the model can call: `weather.py` · `location.py` (home city / IP / place names) · `memory_tools.py` (remember / recall / forget) · `display.py` (show / hide / move / switch the orb) · `web_search.py` (Firecrawl, for the Search agent) · `google_calendar.py` + `google_tasks.py` (for the Calendar agent) · `notion.py` (Notion's MCP tools + ours) · `files.py` (the sandbox) · `errors.py` |
+| `src/jarvis/voice/` | The voice agent (LiveKit): `worker.py` (one session: memory, roll call, pipeline) · `jarvis_agent.py` (`stt_node` → the gate, `llm_node` → Brain, filler, unheard questions, sign-ins) · `gate.py` (the wake-word gate: Flux on/off, follow-ups, echo guard) · `spotter.py` (wake words on your Mac) + `wakewords/` (the "stop" model) · `speech.py` (Flux + ElevenLabs) · `audio.py` (loudness, shared with the desktop app) · `kokoro_tts.py` (offline fallback voice) · `phrases.py` (recorded fixed lines) · `health.py` (`doctor` checks) |
 | `agent.py` | Where LiveKit's CLI finds the voice agent (`jarvis up`, `lk agent console` / `debugger`) |
 | `src/jarvis/auth/` | Sign-ins: `google.py` (browser consent, PKCE, silent renewal) · `notion.py` (Notion's MCP OAuth: self-registration, PKCE) · `store.py` (macOS Keychain + the 30-day rule) · `accounts.py` (names + browser sign-in shared by chat and voice) |
 | `langgraph.json` | Tells `langgraph dev` (Studio) where Jarvis's graph is |
@@ -66,7 +67,8 @@ You type → jarvis chat → Brain.turn(text)
      └─ his words stream back → ElevenLabs (24 kHz PCM) → the room → the desktop app's speakers, sentence by sentence
   ↳ he finishes → 6 s to follow up without "Hey Jarvis" (10 s after "Shall I…?") → quiet → Flux closes
   ↳ while he talks: only his name, "stop" or "wait" stop him; his own echo is dropped
-  ↳ just "Hey Jarvis" → "Sir?" · just "stop" → silence
+  ↳ "stop" ends the conversation: he stops talking and listening, anything half-heard is dropped
+  ↳ just "Hey Jarvis" → "Sir?" · just "wait" → silence, he keeps listening
   ↳ ElevenLabs fails → Kokoro (offline) takes over at once
   ↳ "Shall I…?" talked over → withdrawn: your next words are a new message
   ↳ sign-in needed → the browser opens → signed in → he carries on
@@ -76,12 +78,29 @@ You type → jarvis chat → Brain.turn(text)
 - Flux (paid, ~$0.39/h connected) only runs while you're talking to him; the wake word is free and stays on your Mac.
 - Preemptive generation off: every Brain turn is real (saved, may start sub-agents), so no speculative guesses.
 
+## The orb: what you see
+```
+desktop app ─ main thread: a see-through window above everything (AppKit) → a web page drawing the orb (WebGL)
+            └ the line's thread: the room → orb.update({state, awake, level})
+  his state  ← LiveKit's lk.agent.state attribute      (listening / thinking / speaking)
+  awake      ← the gate → the agent's jarvis.awake      ("Hey Jarvis" … 6 s of quiet, or "stop")
+  level      ← his voice, measured from the audio your Mac already receives (30 times a second)
+"Jarvis, hide the orb" → display_orb → his voice agent → RPC jarvis.display → the desktop does it
+                       → "The orb is hidden." comes back → he answers from that, not from a guess
+```
+- Looks: away (grey) · asleep (small, dim, breathing) · listening (grows) · thinking (spins; a line of light sweeps
+  the centrepiece) · speaking (the strands ripple with his voice).
+- Centrepieces: the classic J.A.R.V.I.S. rings (default), Mjölnir on its rock, Stormbreaker, two arc reactors; your
+  pick and the orb's corner are remembered in `data/orb.json`.
+- Clicks go through it; it never takes your keyboard focus; ~4% of one core asleep, ~11% while you talk.
+
+
 ## Config
 - `.env`: secrets, gitignored · `.env.example`: template, committed. Includes Jarvis's Google sign-in app (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) and the LiveKit server (`LIVEKIT_URL` / `_API_KEY` / `_API_SECRET`; the defaults are the local dev server's fixed, public ones)
 - macOS Keychain: your Google and Notion tokens (entries `jarvis` / `google`, `jarvis` / `notion`), never in a file
 - `jarvis.toml`: preferences (models, `[location] home_city`, `[memory] new_day_hour`, `[auth] remember_days`, `[files] folders`, `[notion] open_pages`, `[voice] stt_model / tts_model / fallback_voice / follow_up_seconds`), committed
 - Google Cloud (Jarvis's Google app): Calendar API + Tasks API switched on; sign-in scopes: calendar events, your calendar list, tasks
-- `data/jarvis.db`: memory (today's conversation + facts), gitignored
+- `data/jarvis.db`: memory (today's conversation + facts), gitignored · `data/orb.json`: where the orb is and its centrepiece
 - Priority: env vars > `.env` > `jarvis.toml` > code defaults
 - `SecretStr` hides keys in logs; `jarvis doctor` shows only set/missing
 
@@ -91,4 +110,5 @@ You type → jarvis chat → Brain.turn(text)
 - `langgraph dev`: LangGraph Studio, a visual debugger for the agent graph
 - `jarvis up`: the LiveKit server + voice agent + desktop app, colour-tagged output; Ctrl+C (or closing the window) stops them in reverse
 - `lk agent console`: the voice agent alone, with your mic + speakers in the terminal · `lk agent debugger`: typed turns, no audio, prints replies + timings
+- `jarvis desktop --demo`: the orb on your screen, every look and centrepiece in turn, no Jarvis needed · `src/jarvis/desktop/web/orb.html#demo` in a browser: try looks, centrepieces and backgrounds by hand
 - `livekit-server --dev`: the local LiveKit server (Homebrew `livekit`); `jarvis up` starts it unless one is running
