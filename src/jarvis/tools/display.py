@@ -22,12 +22,12 @@ async def display_orb(
     screen: Screen = "same",
     core: Core | None = None,
 ) -> str:
-    """Show, hide or move your orb (the ring of light on the user's screen), or change what's in
-    its middle.
+    """Show, hide or move your orb (the ring of light on the user's screen), change what's in
+    its middle, or clear the cards beside it.
 
     Args:
         action: "hide" puts it out of sight, "show" brings it back, "move" moves it, "switch"
-            changes its centrepiece.
+            changes its centrepiece, "clear" removes the cards beside it.
         corner: Where to move it.
         screen: "other" moves it to the user's other screen, if they have one.
         core: For "switch": jarvis (the classic J.A.R.V.I.S. rings with your name); Thor's

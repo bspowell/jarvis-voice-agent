@@ -115,3 +115,17 @@ def test_the_exact_change_is_printed_under_the_question():
     with cli.console.capture() as captured:
         cli.show_event(Event("approval_needed", {"changes": [change]}))
     assert f"↳ {change}" in captured.get()  # brackets survive: printed as text, not markup
+
+
+def test_further_reading_is_printed_under_the_reply_once():
+    links = cli.FurtherReading()
+    link = {
+        "title": "Releases [stable]",
+        "url": "https://github.com/langchain-ai/langgraph/releases",
+    }
+    links.note(Event("further_reading", {"sources": [link]}))
+    with cli.console.capture() as captured:
+        links.show()
+        links.show()  # shown once, under the reply that found them
+    printed = captured.get()
+    assert printed.count("Releases [stable]: https://github.com/") == 1

@@ -5,7 +5,9 @@ it calls `llm_node`: ours sends your words to `Brain.turn()` and streams his rep
 voice, so he starts talking after his first few words. LiveKit's own LLM is only a stand-in.
 Before any of that, `stt_node` runs your mic through the wake-word gate (gate.py).
 For the orb, he tells the room whether he's awake, and carries the display tool's commands to the
-desktop app (an RPC: the desktop does it and says what it did).
+desktop app (an RPC: the desktop does it and says what it did). The Brain's events go to the
+desktop too (a text stream): it shows some as cards, including a sign-in card whose button
+calls back here (another RPC).
 """
 
 import asyncio
@@ -34,7 +36,14 @@ from jarvis.auth.accounts import ACCOUNTS, Service, sign_in
 from jarvis.brain.brain import Brain
 from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
-from jarvis.display import AWAKE, DESKTOP, DISPLAY_METHOD, DisplayCommand
+from jarvis.display import (
+    AWAKE,
+    DESKTOP,
+    DISPLAY_METHOD,
+    EVENTS_TOPIC,
+    SIGN_IN_METHOD,
+    DisplayCommand,
+)
 from jarvis.events import Event
 from jarvis.voice.gate import (
     Finished,
@@ -128,6 +137,7 @@ class JarvisAgent(Agent):
             question_open=lambda: brain.question is not None,
             his_words=lambda: "".join(self.said),
             awake_changed=self.show_awake,
+            stopped=self.clear_cards,
             timing=Timing(follow_up=settings.voice.follow_up_seconds),
         )
         brain.events.subscribe(self.on_brain_event)
@@ -181,17 +191,46 @@ class JarvisAgent(Agent):
         with suppress(RuntimeError):  # nothing is playing
             self.session.interrupt()
 
-    # --- The orb (in the desktop app) ---
+    # --- The orb and its cards (in the desktop app) ---
+    def serve_desktop(self) -> None:
+        """Take the desktop app's calls: your clicks on sign-in cards. Once the session has
+        started: the room is connected by then."""
+        if self.room is not None and self.room.isconnected():
+            self.room.local_participant.register_rpc_method(SIGN_IN_METHOD, self.on_sign_in_click)
+
+    def desktop_here(self) -> bool:
+        room = self.room
+        return room is not None and room.isconnected() and DESKTOP in room.remote_participants
+
     def show_awake(self, awake: bool) -> None:
         """The gate woke or fell asleep: tell the room, so the orb grows or shrinks."""
         if self.room is not None and self.room.isconnected():
             change = self.room.local_participant.set_attributes({AWAKE: str(awake).lower()})
             self.in_background(change)
 
+    def tell_desktop(self, event: Event) -> None:
+        """Pass an event on to the desktop app, which shows some as cards beside the orb."""
+        if self.desktop_here():
+            self.in_background(self.send_to_desktop(event))
+
+    async def send_to_desktop(self, event: Event) -> None:
+        assert self.room is not None  # checked by `tell_desktop`
+        try:
+            await self.room.local_participant.send_text(
+                event.to_json(), topic=EVENTS_TOPIC, destination_identities=[DESKTOP]
+            )
+        except Exception as error:  # e.g. the desktop app just left: nothing to show it on
+            logger.warning("The desktop app missed %r: %s", event.name, error)
+
+    def clear_cards(self) -> None:
+        """You said "stop": the conversation's over, and the cards beside the orb go with it."""
+        if self.desktop_here():
+            self.in_background(self.show_on_desktop(DisplayCommand("clear")))
+
     async def show_on_desktop(self, command: DisplayCommand) -> str:
         """Show, hide or move the orb: the desktop app does it and says what it did."""
         room = self.room
-        if room is None or not room.isconnected() or DESKTOP not in room.remote_participants:
+        if room is None or not self.desktop_here():
             return NO_DESKTOP
         try:
             return await room.local_participant.perform_rpc(
@@ -231,6 +270,7 @@ class JarvisAgent(Agent):
             self.sign_ins_needed.add(Service(event.details["service"]))
         elif event.name == "approval_needed":
             logger.info("Waiting for your OK: %s", " | ".join(event.details["changes"]))
+        self.tell_desktop(event)  # the desktop app shows some as cards
 
     async def llm_node(
         self,
@@ -271,11 +311,29 @@ class JarvisAgent(Agent):
         self.open_sign_ins()
 
     def open_sign_ins(self) -> None:
-        """Open the browser for each sign-in this reply needs (chat shows a button instead)."""
-        for service in self.sign_ins_needed - self.signing_in:
+        """Each sign-in this reply needs. The desktop app shows a card with a button, and your
+        click calls `on_sign_in_click`; with no desktop app (the console), the browser opens."""
+        needed, self.sign_ins_needed = self.sign_ins_needed, set()
+        if self.desktop_here():
+            return
+        for service in needed:
+            self.start_sign_in(service)
+
+    async def on_sign_in_click(self, call: rtc.RpcInvocationData) -> str:
+        """You clicked a sign-in card's button: open the browser and wait for you there."""
+        try:
+            service = Service(call.payload)
+        except ValueError:
+            raise rtc.RpcError(
+                rtc.RpcError.ErrorCode.APPLICATION_ERROR, f"No account called {call.payload!r}."
+            ) from None
+        self.start_sign_in(service)
+        return f"Waiting for you to sign in to {ACCOUNTS[service].name} in the browser."
+
+    def start_sign_in(self, service: Service) -> None:
+        if service not in self.signing_in:  # one browser tab per account
             self.signing_in.add(service)
             self.in_background(self.sign_in(service))
-        self.sign_ins_needed.clear()
 
     def in_background(self, work: Coroutine[Any, Any, Any]) -> None:
         task = asyncio.create_task(work)
@@ -289,10 +347,12 @@ class JarvisAgent(Agent):
             await sign_in(self.settings, service)
         except Exception as error:
             logger.warning("%s sign-in failed: %s", account.name, error)
+            self.tell_desktop(Event("sign_in_failed", {"service": service.value}))
             self.session.say(f"The {account.name} sign-in didn't go through, sir.")
             return
         finally:
             self.signing_in.discard(service)
+        self.tell_desktop(Event("signed_in", {"service": service.value}))
         self.session.generate_reply(user_input=account.signed_in)
 
     async def tts_node(

@@ -3,10 +3,11 @@ and your clicks go straight through it. Made from macOS's own AppKit + WebKit, v
 
 The orb itself is a web page (web/orb.html) drawn with WebGL. Python only tells it what's
 happening: `orb.update({state, awake, level, core})`. Where you put it and what's in its middle
-are remembered between launches (data/orb.json).
+are remembered between launches (data/orb.json). Beside it, the cards' panel (card_panel.py)
+shows what Jarvis has just looked up; it follows the orb, and hides with it.
 
-AppKit only works on the main thread: build and change the window there. Two methods are safe
-from any thread: `update` and `apply` (they pass the work to the main thread).
+AppKit only works on the main thread: build and change the window there. Three methods are safe
+from any thread: `update`, `apply` and `show_event` (they pass the work to the main thread).
 """
 
 import asyncio
@@ -20,23 +21,20 @@ from typing import Any, get_args
 
 import AppKit
 import Foundation
-import objc
 import WebKit
 from PyObjCTools import AppHelper
 
+from jarvis.desktop.card_panel import CardPanel
+from jarvis.desktop.windows import PageWatcher, float_above_everything, load_page
 from jarvis.display import CORE_NAMES, Core, Corner, DisplayCommand
+from jarvis.events import Event
 
 logger = logging.getLogger(__name__)
 
 PAGE = Path(__file__).parent / "web" / "orb.html"
 SIZE = 280  # the window, in points (the orb grows and shrinks inside it)
 MARGIN = 12  # from the screen's edges, menu bar and Dock excluded
-ON_EVERY_DESKTOP = (
-    AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces  # every desktop (Space)
-    | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary  # over fullscreen apps too
-    | AppKit.NSWindowCollectionBehaviorStationary  # stays put when you swipe between desktops
-    | AppKit.NSWindowCollectionBehaviorIgnoresCycle  # never a target for Cmd-`
-)
+CONVERSATION = ("state", "awake")  # what the cards hear of the orb's updates (not his voice)
 
 
 def corner_origin(
@@ -90,13 +88,6 @@ def find_screen(name: str | None) -> AppKit.NSScreen:
     return next((screen for screen in screens if screen_name(screen) == name), screens[0])
 
 
-class PageWatcher(AppKit.NSObject, protocols=[objc.protocolNamed("WKNavigationDelegate")]):
-    """Tells the overlay when its page has loaded (WebKit's navigation delegate)."""
-
-    def webView_didFinishNavigation_(self, web_view: Any, navigation: Any) -> None:
-        self.on_load()
-
-
 class ScreenWatcher(AppKit.NSObject):
     """Tells the overlay when displays are plugged in, unplugged or rearranged."""
 
@@ -121,26 +112,19 @@ class Overlay:
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             frame, AppKit.NSWindowStyleMaskBorderless, AppKit.NSBackingStoreBuffered, False
         )
-        window.setOpaque_(False)
-        window.setBackgroundColor_(AppKit.NSColor.clearColor())
-        window.setHasShadow_(False)
-        window.setIgnoresMouseEvents_(True)  # clicks go to whatever is underneath
-        window.setLevel_(AppKit.NSStatusWindowLevel)  # above ordinary windows
-        window.setCollectionBehavior_(ON_EVERY_DESKTOP)
-        window.setReleasedWhenClosed_(False)
+        float_above_everything(window)  # see-through, click-through, on every desktop
         self.window = window
 
         web = WebKit.WKWebView.alloc().initWithFrame_configuration_(
             frame, WebKit.WKWebViewConfiguration.alloc().init()
         )
-        web.setValue_forKey_(False, "drawsBackground")  # the page's clear background shows through
         self.page_watcher = PageWatcher.alloc().init()  # kept: WebKit only holds it weakly
         self.page_watcher.on_load = self.page_loaded
         web.setNavigationDelegate_(self.page_watcher)
         window.setContentView_(web)
         self.web = web
-        url = Foundation.NSURL.fileURLWithPath_(str(page))
-        web.loadFileURL_allowingReadAccessToURL_(url, url.URLByDeletingLastPathComponent())
+        load_page(web, page)
+        self.cards = CardPanel()  # beside the orb: what Jarvis has just looked up
 
         self.screen_watcher = ScreenWatcher.alloc().init()
         self.screen_watcher.on_change = self.screens_changed
@@ -156,26 +140,39 @@ class Overlay:
     def update(self, **fields: Any) -> None:
         """Show what's happening: any of `state`, `awake` (bool), `level` (0 to 1), `core`."""
         AppHelper.callAfter(self.tell_page, fields)
+        if conversation := {key: fields[key] for key in CONVERSATION if key in fields}:
+            AppHelper.callAfter(self.cards.update, conversation)  # cards fade when it ends
 
     async def apply(self, command: DisplayCommand) -> str:
-        """Show, hide, move or switch the orb; returns what it did, in words (for Jarvis)."""
+        """Show, hide, move or switch the orb, or clear its cards; returns what it did, in words
+        (for Jarvis)."""
         return await on_main_thread(self.carry_out, command)
+
+    def show_event(self, event: Event) -> None:
+        """Something happened: the cards show it if it deserves one (the weather, the agenda…)."""
+        AppHelper.callAfter(self.cards.show_event, event)
 
     # --- Main thread only ---
     def show(self) -> None:
         self.window.orderFrontRegardless()  # shows it without taking your keyboard focus
+        self.cards.show()
 
     def hide(self) -> None:
         self.window.orderOut_(None)
+        self.cards.hide()
 
     def place(self, corner: Corner | None = None, screen: AppKit.NSScreen | None = None) -> None:
         self.corner = corner or self.corner
         self.screen = screen or self.screen
         visible = self.screen.visibleFrame()  # without the menu bar and the Dock
         area = (visible.origin.x, visible.origin.y, visible.size.width, visible.size.height)
-        self.window.setFrameOrigin_(corner_origin(area, self.size, self.corner))
+        x, y = corner_origin(area, self.size, self.corner)
+        self.window.setFrameOrigin_((x, y))
+        self.cards.place((x, y, self.size, self.size), self.corner, area)
 
     def carry_out(self, command: DisplayCommand) -> str:
+        if command.action == "clear":
+            return self.cards.clear()
         if command.action == "hide":
             if not self.window.isVisible():
                 return "The orb was already hidden."

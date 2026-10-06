@@ -43,8 +43,11 @@ class TasksSwitchedOff(RuntimeError):
 
 
 # --- Tools (what the Calendar agent's model sees) ---
-@tool(parse_docstring=True)
-async def list_tasks(due_by: str | None = None, include_done: bool = False) -> dict[str, Any]:
+# The model reads the facts; the artifact (the to-dos card beside the orb) rides along unseen.
+@tool(parse_docstring=True, response_format="content_and_artifact")
+async def list_tasks(
+    due_by: str | None = None, include_done: bool = False
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """List the user's tasks (to-dos) from all their task lists, soonest due first.
 
     Args:
@@ -154,12 +157,15 @@ async def tasks_client() -> AsyncIterator[GoogleTasks]:
 
 
 # --- Reading ---
-async def find_tasks(tasks: GoogleTasks, due_by: str | None, include_done: bool) -> dict[str, Any]:
-    """Compact facts: each task's id, title, list, due day in words, and whether it's done."""
+async def find_tasks(
+    tasks: GoogleTasks, due_by: str | None, include_done: bool
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Compact facts for the agent: each task's id, title, list, due day in words, and whether
+    it's done. And the same tasks for the to-dos card (None when nothing was read)."""
     try:
         last_day = due_day(due_by) if due_by else None
     except ValueError as error:
-        return {"error": str(error)}
+        return {"error": str(error)}, None
     lists = await tasks.lists()
     found = await asyncio.gather(*(tasks.tasks(each["id"], include_done) for each in lists))
     rows = []
@@ -170,15 +176,20 @@ async def find_tasks(tasks: GoogleTasks, due_by: str | None, include_done: bool)
                 continue  # deleted, or an empty line someone left in the list
             if last_day and (due is None or due > last_day):
                 continue
-            rows.append((due or date.max, compact_task(task, task_list)))
+            rows.append((due or date.max, task, task_list))
     rows.sort(key=lambda row: row[0])  # undated tasks last
-    result: dict[str, Any] = {
-        "tasks": [task for _, task in rows[:MAX_TASKS]],
+    shown = rows[:MAX_TASKS]
+    facts: dict[str, Any] = {
+        "tasks": [compact_task(task, task_list) for _, task, task_list in shown],
         "task_lists": [each.get("title", each["id"]) for each in lists],
     }
+    todo: dict[str, Any] = {
+        "due_by": last_day.isoformat() if last_day else None,
+        "tasks": [todo_entry(task, task_list) for _, task, task_list in shown],
+    }
     if len(rows) > MAX_TASKS:
-        result["more_not_shown"] = len(rows) - MAX_TASKS
-    return result
+        facts["more_not_shown"] = todo["more"] = len(rows) - MAX_TASKS
+    return facts, todo
 
 
 def compact_task(task: dict[str, Any], task_list: dict[str, Any]) -> dict[str, Any]:
@@ -194,6 +205,17 @@ def compact_task(task: dict[str, Any], task_list: dict[str, Any]) -> dict[str, A
     if notes := task.get("notes"):
         found["notes"] = notes[:MAX_NOTES]
     return found
+
+
+def todo_entry(task: dict[str, Any], task_list: dict[str, Any]) -> dict[str, Any]:
+    """One task for the to-dos card: its due day as a date ("2026-10-09"), or None."""
+    due = due_on(task)
+    return {
+        "title": task.get("title", "(no title)"),
+        "due": due.isoformat() if due else None,
+        "done": task.get("status") == "completed",
+        "list": task_list.get("title", task_list["id"]),
+    }
 
 
 def due_on(task: dict[str, Any]) -> date | None:

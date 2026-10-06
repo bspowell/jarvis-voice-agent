@@ -5,11 +5,14 @@
   cancellation takes his voice back out of it, and his voice plays on your speakers by itself.
 - The orb hears about everything he does: his state (listening / thinking / speaking), whether
   he's awake, and how loud his voice is. His display commands ("hide the orb") come in as RPCs.
+- His Brain's events come in as text: the cards beside the orb (the weather, the agenda…). Your
+  click on a sign-in card goes back to him as an RPC: he opens the browser.
 - Watchdog: if he doesn't arrive, leaves, or the room ends (his session ended), it starts over
   in a new room. Today's conversation is in his memory, so nothing is lost.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
@@ -21,7 +24,15 @@ from typing import Any, Protocol
 from livekit import api, rtc
 
 from jarvis.config import Settings
-from jarvis.display import AWAKE, DESKTOP, DISPLAY_METHOD, DisplayCommand
+from jarvis.display import (
+    AWAKE,
+    DESKTOP,
+    DISPLAY_METHOD,
+    EVENTS_TOPIC,
+    SIGN_IN_METHOD,
+    DisplayCommand,
+)
+from jarvis.events import Event
 from jarvis.voice import AGENT_NAME, SHORT_KEY_WARNING
 from jarvis.voice.audio import decibels
 
@@ -39,6 +50,7 @@ MIC = rtc.PlatformAudioOptions(  # WebRTC's processing of your mic, as in a brow
 VOICE_RATE = 24000  # his voice as it arrives (ElevenLabs and Kokoro both speak at 24 kHz)
 LEVELS_PER_SECOND = 30  # how often the orb hears his loudness (it smooths in between)
 QUIET_DB, LOUD_DB = -50.0, -12.0  # his voice's level: this quiet shows as 0, this loud as 1
+SIGN_IN_SECONDS = 3.0  # how long he may take to answer a click on "Sign in"
 
 
 class Orb(Protocol):
@@ -50,6 +62,10 @@ class Orb(Protocol):
     async def apply(self, command: DisplayCommand) -> str:
         """Show, hide or move the orb; returns what it did, in words."""
 
+    def show_event(self, event: Event) -> None:
+        """Something happened that may deserve a card (the weather, the agenda…). Called from
+        the line's thread."""
+
 
 class NoOrb:
     """No window (e.g. in tests): nothing to show, and display commands say so."""
@@ -59,6 +75,9 @@ class NoOrb:
 
     async def apply(self, command: DisplayCommand) -> str:
         return "This desktop app has no orb to show."
+
+    def show_event(self, event: Event) -> None:
+        pass
 
 
 def room_name(now: datetime) -> str:
@@ -96,8 +115,12 @@ class RoomClient:
         self.orb = orb or NoOrb()
         self.agent_state = "away"  # his state, as the room reports it
         self.reading: set[asyncio.Task[None]] = set()
+        self.room: rtc.Room | None = None  # the room you're in, if any
+        self.jarvis: str | None = None  # his identity in it, once he's there
+        self.loop: asyncio.AbstractEventLoop | None = None  # the line's (for clicks)
 
     async def run(self) -> None:
+        self.loop = asyncio.get_running_loop()
         audio = rtc.PlatformAudio()  # your Mac's mic and speakers, through WebRTC
         try:
             while True:
@@ -125,6 +148,7 @@ class RoomClient:
         def left(participant: rtc.RemoteParticipant) -> None:
             if is_jarvis(participant):
                 logger.info("Jarvis left the room.")
+                self.jarvis = None
                 over.set()
 
         @room.on("disconnected")
@@ -144,9 +168,11 @@ class RoomClient:
                 self.read(self.follow_voice(track))
 
         room.register_text_stream_handler(TRANSCRIPTION, self.show_words)
+        room.register_text_stream_handler(EVENTS_TOPIC, self.show_event)
         room.register_byte_stream_handler(SESSION_EVENTS, self.skip)
         name = room_name(datetime.now())
         await room.connect(self.settings.livekit_url, invite(self.settings, name))
+        self.room = room
         room.local_participant.register_rpc_method(DISPLAY_METHOD, self.on_display)  # once in
         mic = audio.create_audio_source(MIC)
         try:
@@ -168,12 +194,14 @@ class RoomClient:
             await over.wait()
         finally:
             self.agent_state = "away"
+            self.room = self.jarvis = None
             self.orb.update(state="away", awake=False, level=0)
             await room.disconnect()
             mic.close()
 
     def he_is_here(self, participant: rtc.RemoteParticipant) -> None:
         """He has just arrived: show the state he came with."""
+        self.jarvis = participant.identity
         self.show_attributes(participant.attributes)
 
     def show_attributes(self, changed: Mapping[str, str]) -> None:
@@ -212,6 +240,44 @@ class RoomClient:
         done = await self.orb.apply(command)
         logger.info("Orb: %s", done)
         return done
+
+    def show_event(self, reader: rtc.TextStreamReader, identity: str) -> None:
+        """One of his Brain's events: the orb's cards show some (the weather, the agenda…)."""
+        self.read(self.read_event(reader))
+
+    async def read_event(self, reader: rtc.TextStreamReader) -> None:
+        text = await reader.read_all()
+        try:
+            event = Event.from_json(text)
+        except ValueError:
+            logger.warning("Not an event: %s", text[:80])
+            return
+        self.orb.show_event(event)
+
+    def sign_in_clicked(self, service: str) -> None:
+        """You clicked "Sign in" on a card. Safe from any thread (the click comes from the
+        window's): the call to Jarvis runs on the line's own loop."""
+        if self.loop is not None:
+            with contextlib.suppress(RuntimeError):  # the line has ended
+                asyncio.run_coroutine_threadsafe(self.ask_to_sign_in(service), self.loop)
+
+    async def ask_to_sign_in(self, service: str) -> None:
+        """Ask Jarvis to open the sign-in page in your browser; the card shows how it went."""
+        room, jarvis = self.room, self.jarvis
+        try:
+            if room is None or jarvis is None:
+                raise RuntimeError("Jarvis isn't connected.")
+            await room.local_participant.perform_rpc(
+                destination_identity=jarvis,
+                method=SIGN_IN_METHOD,
+                payload=service,
+                response_timeout=SIGN_IN_SECONDS,
+            )
+        except Exception as error:  # he's gone, timed out, or refused: the card says so
+            logger.warning("The %s sign-in didn't start: %s", service, error)
+            self.orb.show_event(Event("sign_in_failed", {"service": service}))
+            return
+        self.orb.show_event(Event("signing_in", {"service": service}))
 
     def show_words(self, reader: rtc.TextStreamReader, identity: str) -> None:
         """What you said and what he said, as LiveKit transcribes them (final versions only)."""

@@ -87,6 +87,7 @@ def test_commands_travel_as_json_and_nonsense_is_refused():
     for command in (move, switch):
         assert DisplayCommand.from_json(command.to_json()) == command
     assert DisplayCommand.from_json('{"action": "hide"}') == DisplayCommand("hide")
+    assert DisplayCommand.from_json('{"action": "clear"}') == DisplayCommand("clear")  # the cards
     for nonsense in [
         '{"action": "explode"}',
         '{"action": "move", "corner": "middle"}',

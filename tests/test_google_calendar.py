@@ -1,4 +1,5 @@
 import json
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
@@ -6,6 +7,7 @@ from fakes import CALENDARS, HOLIDAYS, MAIN_CALENDAR, VACATION, WORK, ZONE, Fake
 from langchain_core.messages import ToolCall, ToolMessage
 
 from jarvis.auth.google import NotSignedIn
+from jarvis.tools import google_calendar
 from jarvis.tools.google_calendar import (
     NOTHING_TO_CHANGE,
     GoogleCalendar,
@@ -14,13 +16,14 @@ from jarvis.tools.google_calendar import (
     describe_event_change,
     describe_new_event,
     find_events,
+    list_events,
     requested_changes,
 )
 
 
 async def test_a_day_lists_every_ticked_calendar_soonest_first():
     calendar = FakeGoogleCalendar()
-    found = await find_events(calendar, "2026-10-05", None, None)
+    found, _agenda = await find_events(calendar, "2026-10-05", None, None)
     assert found == {
         "time_zone": ZONE,
         "events": [
@@ -44,6 +47,44 @@ async def test_a_day_lists_every_ticked_calendar_soonest_first():
     assert {read[0] for read in calendar.reads} == {MAIN_CALENDAR["id"], WORK["id"], HOLIDAYS["id"]}
 
 
+async def test_the_agenda_card_gets_exact_times_the_model_never_sees():
+    _found, agenda = await find_events(FakeGoogleCalendar(), "2026-10-05", None, None)
+    assert agenda == {
+        "first_day": "2026-10-05",
+        "last_day": "2026-10-05",
+        "search": None,
+        "events": [
+            {
+                "title": "Standup",
+                "start": "2026-10-05T09:30",
+                "end": "2026-10-05T09:45",
+                "calendar": "Work",
+            },
+            {
+                "title": "Dentist",
+                "start": "2026-10-05T14:00",
+                "end": "2026-10-05T15:00",
+                "calendar": "main",
+                "location": "Main Dental",
+            },
+        ],
+    }
+
+
+async def test_list_events_hands_the_model_facts_and_the_card_its_artifact(monkeypatch):
+    @asynccontextmanager
+    async def calendar_client():
+        yield FakeGoogleCalendar()
+
+    monkeypatch.setattr(google_calendar, "calendar_client", calendar_client)
+    asks = ToolCall(
+        name="list_events", args={"start_date": "2026-10-05"}, id="l1", type="tool_call"
+    )
+    message = await list_events.ainvoke(asks)
+    assert "Main Dental" in message.text and "2026-10-05T14:00" not in message.text
+    assert message.artifact["events"][1]["start"] == "2026-10-05T14:00"
+
+
 async def test_a_day_runs_midnight_to_midnight_in_your_time_zone():
     calendar = FakeGoogleCalendar()
     await find_events(calendar, "2026-10-05", None, None)
@@ -52,18 +93,25 @@ async def test_a_day_runs_midnight_to_midnight_in_your_time_zone():
 
 
 async def test_a_week_includes_all_day_events():
-    found = await find_events(FakeGoogleCalendar(), "2026-10-05", "2026-10-12", None)
+    found, agenda = await find_events(FakeGoogleCalendar(), "2026-10-05", "2026-10-12", None)
     assert found["events"][-1] == {
         "id": "ev-thanksgiving",
         "title": "Thanksgiving",
         "when": "Mon 12 Oct 2026, all day",  # Google's end date is the day after; we say the day
         "calendar": "Holidays in Canada",
     }
+    assert agenda["events"][-1] == {
+        "title": "Thanksgiving",
+        "start": "2026-10-12",  # all-day: days, no times
+        "end": "2026-10-12",
+        "calendar": "Holidays in Canada",
+    }
 
 
 async def test_unreadable_dates_are_a_fact_for_the_agent():
-    found = await find_events(FakeGoogleCalendar(), "next Tuesday", None, None)
+    found, agenda = await find_events(FakeGoogleCalendar(), "next Tuesday", None, None)
     assert found == {"error": "Dates must look like 2026-10-05."}
+    assert agenda is None  # nothing read: no card
 
 
 async def test_a_new_event_goes_to_the_main_calendar_for_an_hour():

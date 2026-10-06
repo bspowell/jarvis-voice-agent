@@ -16,7 +16,14 @@ from livekit.agents.voice import SpeechHandle
 
 from jarvis.brain.greeting import FILLER, SIR
 from jarvis.config import Settings
-from jarvis.display import AWAKE, DESKTOP, DISPLAY_METHOD, DisplayCommand
+from jarvis.display import (
+    AWAKE,
+    DESKTOP,
+    DISPLAY_METHOD,
+    EVENTS_TOPIC,
+    SIGN_IN_METHOD,
+    DisplayCommand,
+)
 from jarvis.events import Event, EventBus
 from jarvis.voice import jarvis_agent
 from jarvis.voice.gate import Finished
@@ -76,9 +83,19 @@ class FakeRoom:
         self.answer = answer  # the desktop app's reply to a call
         self.attributes: list[dict[str, str]] = []
         self.calls: list[dict] = []
+        self.texts: list[dict] = []  # events sent as text: topic, to whom, the event
+        self.methods: dict[str, object] = {}  # calls the agent takes from the desktop app
 
     def isconnected(self) -> bool:
         return True
+
+    async def send_text(self, text: str, *, topic: str, destination_identities: list[str]) -> None:
+        self.texts.append(
+            {"topic": topic, "to": destination_identities, "event": Event.from_json(text)}
+        )
+
+    def register_rpc_method(self, method: str, handler) -> None:
+        self.methods[method] = handler
 
     async def set_attributes(self, attributes: dict[str, str]) -> None:
         self.attributes.append(attributes)
@@ -96,9 +113,9 @@ def make_agent(brain: FakeBrain, tmp_path, room: FakeRoom | None = None) -> Jarv
 
 
 @asynccontextmanager
-async def voice_session(brain: FakeBrain, tmp_path):
+async def voice_session(brain: FakeBrain, tmp_path, room: FakeRoom | None = None):
     async with AgentSession(llm=BrainLLM()) as session:
-        await session.start(make_agent(brain, tmp_path))
+        await session.start(make_agent(brain, tmp_path, room))
         yield session
 
 
@@ -386,3 +403,57 @@ async def test_the_room_hears_when_he_wakes_and_sleeps(tmp_path):
     agent.show_awake(False)
     await asyncio.sleep(0)
     assert room.attributes == [{AWAKE: "true"}, {AWAKE: "false"}]
+
+
+# --- The cards beside the orb ---
+def click(service: str) -> rtc.RpcInvocationData:
+    """The desktop app calls: you clicked a sign-in card's button."""
+    return rtc.RpcInvocationData("call-1", DESKTOP, service, 3.0, SIGN_IN_METHOD)
+
+
+async def test_the_brains_events_go_to_the_desktop_app_as_text(tmp_path):
+    weather = Event("weather", {"place": "Vancouver"})
+    for room, sent in ((FakeRoom(), 1), (FakeRoom(desktop=False), 0)):
+        brain = FakeBrain([weather, "Rain at four, sir."])
+        async with voice_session(brain, tmp_path, room) as session:
+            await reply_to(session, "Will it rain?")
+            await asyncio.sleep(0.01)
+        assert room.texts == [{"topic": EVENTS_TOPIC, "to": [DESKTOP], "event": weather}] * sent
+
+
+async def test_with_the_desktop_app_a_sign_in_waits_for_your_click(tmp_path, monkeypatch):
+    opened = []
+
+    async def sign_in(settings, service):
+        opened.append(service)  # the browser opens; you approve
+
+    monkeypatch.setattr(jarvis_agent, "sign_in", sign_in)
+    room = FakeRoom()
+    brain = FakeBrain([NEEDS_GOOGLE, "The button's on your screen, sir."], ["Noon, sir."])
+    async with voice_session(brain, tmp_path, room) as session:
+        session.current_agent.serve_desktop()
+        await reply_to(session, "When's lunch tomorrow?")
+        await asyncio.sleep(0.05)
+        assert opened == []  # no browser yet: the card has the button
+        answer = await room.methods[SIGN_IN_METHOD](click("google"))
+        await wait_until(lambda: len(brain.heard) == 2)
+    assert answer == "Waiting for you to sign in to Google in the browser."
+    assert opened == ["google"]
+    assert brain.heard == ["When's lunch tomorrow?", "I've signed in to Google."]
+    sent = [(text["event"].name, text["event"].details) for text in room.texts]
+    assert sent == [("sign_in_needed", {"service": "google"}), ("signed_in", {"service": "google"})]
+
+
+async def test_a_click_for_an_unknown_account_is_refused(tmp_path):
+    room = FakeRoom()
+    make_agent(FakeBrain(), tmp_path, room).serve_desktop()
+    with pytest.raises(rtc.RpcError):
+        await room.methods[SIGN_IN_METHOD](click("myspace"))
+
+
+async def test_stop_clears_the_cards(tmp_path):
+    room = FakeRoom(answer="Cleared the cards.")
+    agent = make_agent(FakeBrain(), tmp_path, room)
+    agent.gate.end_conversation("you said “stop”")
+    await wait_until(lambda: room.calls)
+    assert room.calls[0]["payload"] == DisplayCommand("clear").to_json()

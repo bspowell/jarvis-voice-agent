@@ -6,10 +6,16 @@ from fakes import (
     NO_RESULTS,
     PARIS_RESULTS,
     VANCOUVER_IP,
+    FakeToolCallingModel,
     fake_web,
 )
+from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, ToolCall
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from langgraph.checkpoint.memory import InMemorySaver
 
+from jarvis.brain.brain import Brain
+from jarvis.tools import weather
 from jarvis.tools.location import Place
 from jarvis.tools.weather import describe, fetch_forecast, get_weather, weather_report
 
@@ -60,3 +66,26 @@ async def test_unknown_place_is_a_fact_not_a_crash():
 
 def test_unlisted_weather_code_still_reads():
     assert describe(42) == "weather code 42"
+
+
+async def test_the_report_also_goes_to_the_weather_card(monkeypatch):
+    web = {**WEB, GEOCODER: PARIS_RESULTS}
+    monkeypatch.setattr(weather, "http_client", lambda: fake_web(web))
+    asks = [
+        AIMessage("", tool_calls=[ToolCall(name="get_weather", args={"place": place}, id=place)])
+        for place in ("Paris", "Xyzzyplace")
+    ]
+    model = FakeToolCallingModel(messages=iter([asks[0], "Grey, sir.", asks[1], "No such place."]))
+    brain = Brain(create_agent(model, tools=[get_weather], checkpointer=InMemorySaver()))
+    events = []
+    brain.events.subscribe(events.append)
+
+    [_ async for _ in brain.turn("Weather in Paris?")]
+    [card] = events
+    assert card.name == "weather"
+    assert card.details["place"] == "Paris, Île-de-France, France"
+    assert card.details["today"]["precipitation_chance_pct"] == 80
+
+    monkeypatch.setattr(weather, "http_client", lambda: fake_web({GEOCODER: NO_RESULTS}))
+    [_ async for _ in brain.turn("And in Xyzzyplace?")]
+    assert len(events) == 1  # a place that isn't found gets no card

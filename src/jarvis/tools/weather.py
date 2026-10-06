@@ -1,11 +1,17 @@
-"""The weather tool: conditions now and today's outlook, from Open-Meteo (free, no key)."""
+"""The weather tool: conditions now and today's outlook, from Open-Meteo (free, no key).
+
+The same facts go to Jarvis (to put into words) and, as an event, to the weather card beside
+the orb.
+"""
 
 from typing import Any
 
 import httpx
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 
+from jarvis.brain.context import JarvisContext
 from jarvis.config import get_settings
+from jarvis.events import Event
 from jarvis.tools.location import Place, find_place, where_user_is
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -45,7 +51,9 @@ WEATHER_CODES = {
 
 
 @tool(parse_docstring=True)
-async def get_weather(place: str | None = None) -> dict[str, Any]:
+async def get_weather(
+    runtime: ToolRuntime[JarvisContext], place: str | None = None
+) -> dict[str, Any]:
     """Get the weather right now and today's forecast, in Celsius.
 
     Args:
@@ -53,7 +61,10 @@ async def get_weather(place: str | None = None) -> dict[str, Any]:
             Leave out for the user's current location.
     """
     async with http_client() as client:
-        return await weather_report(client, place, home_city=get_settings().location.home_city)
+        report = await weather_report(client, place, home_city=get_settings().location.home_city)
+    if "error" not in report:
+        runtime.stream_writer(Event("weather", report))  # the weather card, beside the orb
+    return report
 
 
 def http_client() -> httpx.AsyncClient:

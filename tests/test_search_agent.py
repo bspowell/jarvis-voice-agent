@@ -1,4 +1,12 @@
-from fakes import LANGGRAPH_PAGES, LANGGRAPH_RESULTS, FakeFirecrawl, FakeToolCallingModel
+from fakes import (
+    BLOG,
+    LANGGRAPH_PAGES,
+    LANGGRAPH_RESULTS,
+    PYPI,
+    RELEASES,
+    FakeFirecrawl,
+    FakeToolCallingModel,
+)
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -20,6 +28,9 @@ SEARCH = AIMessage(
     "", tool_calls=[ToolCall(name="web_search", args={"query": "LangGraph release"}, id="s1")]
 )
 REPORT = "LangGraph 1.2.12 came out on 30 September 2026. Sources: PyPI."
+# The Search agent's final message: the report, then its picks for reading more (code removes
+# that line before Jarvis sees the report).
+ANSWER = AIMessage(f"{REPORT}\nFurther reading: {PYPI}")
 
 
 def search_agent_tool(monkeypatch, *replies, firecrawl=None, api_key="fc-test"):
@@ -43,7 +54,7 @@ async def ask(agent, text: str) -> list:
 
 async def test_jarvis_hears_only_the_short_report(monkeypatch):
     firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
-    tool, _ = search_agent_tool(monkeypatch, SEARCH, AIMessage(REPORT), firecrawl=firecrawl)
+    tool, _ = search_agent_tool(monkeypatch, SEARCH, ANSWER, firecrawl=firecrawl)
     jarvis = jarvis_with(tool, ASK_SEARCH_AGENT, AIMessage("1.2.12, sir."))
 
     _you, _delegation, report, answer = await ask(jarvis, "What's the latest LangGraph?")
@@ -57,7 +68,7 @@ async def test_jarvis_hears_only_the_short_report(monkeypatch):
 
 async def test_search_agent_gets_only_the_task_with_time_and_depth(monkeypatch):
     firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
-    tool, model = search_agent_tool(monkeypatch, SEARCH, AIMessage(REPORT), firecrawl=firecrawl)
+    tool, model = search_agent_tool(monkeypatch, SEARCH, ANSWER, firecrawl=firecrawl)
     jarvis = jarvis_with(tool, ASK_SEARCH_AGENT, AIMessage("1.2.12, sir."))
     await ask(jarvis, "My name is Sean. What's the latest LangGraph?")
 
@@ -65,13 +76,14 @@ async def test_search_agent_gets_only_the_task_with_time_and_depth(monkeypatch):
     task = first_call[-1].text
     assert task.startswith("[")  # the current time, like Jarvis's own messages
     assert "Latest LangGraph release?\nDepth: quick." in task
-    assert task.endswith("at most 80 words.")  # the format rule, repeated where it sticks best
+    # The format rules, repeated where they stick best: the end of the request.
+    assert "at most 80 words, then a last line: Further reading" in task
     assert "Sean" not in str(first_call)  # isolated: none of Jarvis's conversation
 
 
 async def test_search_agent_saves_nothing_in_jarvis_memory(monkeypatch):
     firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
-    tool, _ = search_agent_tool(monkeypatch, SEARCH, AIMessage(REPORT), firecrawl=firecrawl)
+    tool, _ = search_agent_tool(monkeypatch, SEARCH, ANSWER, firecrawl=firecrawl)
     saver = InMemorySaver()
     jarvis = jarvis_with(tool, ASK_SEARCH_AGENT, AIMessage("1.2.12, sir."), checkpointer=saver)
     await ask(jarvis, "What's the latest LangGraph?")
@@ -86,9 +98,7 @@ async def test_a_runaway_search_agent_is_stopped(monkeypatch):
         AIMessage("", tool_calls=[ToolCall(name="web_search", args={"query": "x"}, id=f"s{n}")])
         for n in range(MAX_TOOL_CALLS + 3)
     ]
-    tool, _ = search_agent_tool(
-        monkeypatch, *keeps_searching, AIMessage(REPORT), firecrawl=firecrawl
-    )
+    tool, _ = search_agent_tool(monkeypatch, *keeps_searching, ANSWER, firecrawl=firecrawl)
     jarvis = jarvis_with(tool, ASK_SEARCH_AGENT, AIMessage("1.2.12, sir."))
 
     *_, report, _answer = await ask(jarvis, "What's the latest LangGraph?")
@@ -108,19 +118,44 @@ async def test_missing_key_is_a_fact_for_jarvis(monkeypatch):
 
 async def test_starting_a_search_cues_the_filler_but_its_words_stay_unspoken(monkeypatch):
     firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
-    tool, _ = search_agent_tool(monkeypatch, SEARCH, AIMessage(REPORT), firecrawl=firecrawl)
+    tool, _ = search_agent_tool(monkeypatch, SEARCH, ANSWER, firecrawl=firecrawl)
     brain = Brain(jarvis_with(tool, ASK_SEARCH_AGENT, "1.2.12, sir.", checkpointer=InMemorySaver()))
     events = []
     brain.events.subscribe(events.append)
 
     reply = "".join([chunk async for chunk in brain.turn("What's the latest LangGraph?")])
-    assert events == [Event("agent_started", {"agent": "search"})]
+    assert events == [
+        Event("agent_started", {"agent": "search"}),
+        Event("further_reading", {"sources": [{"title": "langgraph · PyPI", "url": PYPI}]}),
+    ]
     assert reply == "1.2.12, sir."  # Jarvis's words only: not the report, not the pages
+
+
+async def test_further_reading_keeps_only_pages_from_the_results(monkeypatch):
+    firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
+    picks = [f"{BLOG}#latest", "https://made.up/page", PYPI, RELEASES, BLOG]
+    answer = AIMessage(f"{REPORT}\n\n**Further reading:**\n" + "\n".join(f"- {p}" for p in picks))
+    tool, _ = search_agent_tool(monkeypatch, SEARCH, answer, firecrawl=firecrawl)
+    brain = Brain(jarvis_with(tool, ASK_SEARCH_AGENT, "1.2.12, sir.", checkpointer=InMemorySaver()))
+    events = []
+    brain.events.subscribe(events.append)
+
+    [_chunk async for _chunk in brain.turn("What's the latest LangGraph?")]
+    messages = (await brain.agent.aget_state(brain.config())).values["messages"]
+    assert messages[2].text == REPORT  # Jarvis's copy: no addresses to read aloud
+    links = events[-1].details["sources"]
+    # A made-up address never reaches the screen; titles come from the results, not the model;
+    # the same page twice is shown once; three at most, in the agent's order.
+    assert links == [
+        {"title": "LangChain Blog", "url": BLOG},
+        {"title": "langgraph · PyPI", "url": PYPI},
+        {"title": "Releases · langgraph", "url": RELEASES},
+    ]
 
 
 async def test_digging_deeper_uses_the_stronger_model(monkeypatch):
     settings = Settings(_env_file=None, firecrawl_api_key="fc-test")
-    quick, deep = (FakeToolCallingModel(messages=iter([AIMessage(REPORT)])) for _ in range(2))
+    quick, deep = (FakeToolCallingModel(messages=iter([ANSWER])) for _ in range(2))
     models = {settings.models.search: quick, settings.models.search_deep: deep}
     monkeypatch.setattr(search, "make_model", lambda name: models[name])
     asks_to_dig = AIMessage(
@@ -138,3 +173,14 @@ async def test_digging_deeper_uses_the_stronger_model(monkeypatch):
     await ask(jarvis, "Dig deeper into what's new in LangGraph.")
     assert "Depth: deep." in deep.seen[0][-1].text
     assert quick.seen == []
+
+
+async def test_no_picks_no_links(monkeypatch):
+    firecrawl = FakeFirecrawl(LANGGRAPH_RESULTS, LANGGRAPH_PAGES)
+    tool, _ = search_agent_tool(monkeypatch, SEARCH, AIMessage(REPORT), firecrawl=firecrawl)
+    brain = Brain(jarvis_with(tool, ASK_SEARCH_AGENT, "1.2.12, sir.", checkpointer=InMemorySaver()))
+    events = []
+    brain.events.subscribe(events.append)
+
+    [_chunk async for _chunk in brain.turn("What's the latest LangGraph?")]
+    assert [event.name for event in events] == ["agent_started"]  # nothing recommended: no card

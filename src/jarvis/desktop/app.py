@@ -20,7 +20,7 @@ import AppKit
 from PyObjCTools import AppHelper, MachSignals
 
 from jarvis.config import Settings
-from jarvis.desktop.demo import show_off
+from jarvis.desktop.demo import pretend_sign_in, show_off
 from jarvis.desktop.overlay import Overlay
 from jarvis.desktop.room_client import RoomClient
 from jarvis.voice import quiet_livekit_exit_noise
@@ -77,7 +77,13 @@ def run_desktop(settings: Settings, demo: bool = False) -> None:
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
     overlay = Overlay(memory=settings.data_dir / ORB_MEMORY)
     overlay.show()
-    call = show_off(overlay) if demo else RoomClient(settings, orb=overlay).run()
+    if demo:
+        overlay.cards.on_sign_in = lambda service: pretend_sign_in(overlay, service)
+        call = show_off(overlay)
+    else:
+        client = RoomClient(settings, orb=overlay)
+        overlay.cards.on_sign_in = client.sign_in_clicked  # a card's "Sign in" → ask Jarvis
+        call = client.run()
     line = Line(call, when_over=lambda: AppHelper.callAfter(stop))
     for signum in (signal.SIGINT, signal.SIGTERM):
         # Python's own handlers would wait for the event loop to hand back the main thread;

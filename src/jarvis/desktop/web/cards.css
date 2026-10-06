@@ -1,0 +1,330 @@
+/* Jarvis's cards: glass plates lit from the orb's side, beside the orb.
+
+   Words in Gill Sans (the butler's English voice), figures in DIN Condensed (instrument
+   read-outs). Cyan is the orb's own light; amber only marks what needs you. */
+
+/* Words: Gill Sans, but with Avenir Next's digits. Gill Sans's "1" looks like a capital I
+   ("I8 km/h"); unicode-range swaps just the figures 0 to 9. Where faces overlap, the one
+   defined last wins: the digits come last. */
+@font-face { font-family: "Jarvis Words"; font-weight: 400; src: local("GillSans"); }
+@font-face { font-family: "Jarvis Words"; font-weight: 600; src: local("GillSans-SemiBold"); }
+@font-face { font-family: "Jarvis Words"; font-weight: 400; src: local("AvenirNext-Regular"); unicode-range: U+30-39; }
+@font-face { font-family: "Jarvis Words"; font-weight: 600; src: local("AvenirNext-DemiBold"); unicode-range: U+30-39; }
+
+:root {
+  --glass: rgb(7 24 32 / 0.9);      /* smoked glass: reads on white pages as well as dark ones */
+  --arc: #5ce1ff;                   /* the orb's light */
+  --frost: #e6f8ff;                 /* words */
+  --tide: #86aebb;                  /* quieter words: times, places, sites */
+  --deep: #1c5f70;                  /* lines: the timeline, the day's range */
+  --amber: #ffb547;                 /* needs you: sign in, overdue, rain likely */
+  --words: "Jarvis Words", "Gill Sans", "Avenir Next", system-ui, sans-serif;
+  --figures: "DIN Condensed", "DIN Alternate", "Avenir Next Condensed", system-ui, sans-serif;
+  --card-width: 288px;
+  --toward-orb: to left;            /* the light's direction: from the orb across the card */
+}
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+body {
+  color: var(--frost);
+  font: 14px/1.35 var(--words);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* --- The stack: beside the orb, lined up with it --- */
+.stack {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;          /* align-bottom: the newest card sits lowest, by the orb */
+  align-items: flex-end;              /* orb-right: the cards' lit edges line up on its side */
+  gap: 10px;
+  padding: 14px 16px;
+  box-sizing: border-box;
+}
+.align-top .stack { flex-direction: column-reverse; }   /* newest at the top, by the orb */
+.orb-left { --toward-orb: to right; }
+.orb-left .stack { align-items: flex-start; }
+
+/* --- A card --- */
+.card {
+  position: relative;
+  flex: none;
+  width: var(--card-width);
+  box-sizing: border-box;
+  padding: 12px 16px 14px;
+  border: 1px solid rgb(134 174 187 / 0.16);
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--toward-orb), rgb(92 225 255 / 0.1), rgb(92 225 255 / 0) 60%),
+    var(--glass);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.32);
+  overflow: hidden;
+}
+.card::before {                       /* the lit edge: light from the orb */
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  right: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, transparent, var(--arc) 20%, var(--arc) 80%, transparent);
+  box-shadow: 0 0 10px 1px rgb(92 225 255 / 0.6);
+}
+.orb-left .card::before { right: auto; left: 0; }
+
+.card__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.card__title { margin: 0; font-size: 15.5px; font-weight: 600; letter-spacing: 0.01em; }
+.card__side { margin: 0; color: var(--tide); font-size: 13px; white-space: nowrap; }
+.card p { margin: 0; }
+.quiet { color: var(--tide); font-size: 13px; }
+.amber { color: var(--amber); }
+.more, .empty { margin-top: 8px; color: var(--tide); font-size: 13px; }
+
+/* --- Weather: the temperature first --- */
+.wx { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.wx__temp {
+  font: 700 50px/0.9 var(--figures);
+  letter-spacing: -0.01em;
+  padding-top: 6px;                  /* DIN's figures sit high: optically centred */
+}
+.wx__cond { font-size: 16px; }
+.range { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.range__low, .range__high { font: 700 16px/1 var(--figures); color: var(--tide); padding-top: 2px; }
+.range__track {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--deep), rgb(92 225 255 / 0.55));
+}
+.range__track i {                    /* now, between today's low and high */
+  position: absolute;
+  top: 50%;
+  left: calc(var(--at) * 100%);
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--frost);
+  box-shadow: 0 0 8px 2px rgb(92 225 255 / 0.7);
+}
+.facts { display: flex; gap: 18px; margin: 10px 0 0; }
+.facts div { display: grid; gap: 1px; }
+.facts dt { color: var(--tide); font-size: 12px; }
+.facts dd { margin: 0; font-size: 14px; }
+
+/* --- Agenda: a timeline --- */
+.agenda { list-style: none; margin: 6px 0 0; padding: 0; }
+.agenda__day { margin: 10px 0 2px; color: var(--tide); font-size: 13px; }
+.agenda__day:first-child { margin-top: 2px; }
+.event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px 14px 1fr;
+  align-items: baseline;
+  padding: 4px 0;
+}
+.event time {
+  font: 700 15.5px/1.2 var(--figures);
+  color: var(--tide);
+  text-align: right;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+.event__dot {                        /* a point on the line */
+  position: relative;
+  align-self: stretch;
+}
+.event__dot::before {                /* the line through the day */
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: -4px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--deep);
+}
+.event.is-first .event__dot::before { top: 10px; }
+.event.is-last .event__dot::before { bottom: calc(100% - 10px); }
+.event__dot::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--tide);
+  border-radius: 50%;
+  background: var(--glass);
+}
+.event__title { font-size: 14.5px; }
+.event__where { color: var(--tide); font-size: 12.5px; }
+.event.is-past { opacity: 0.45; }
+.event.is-next time { color: var(--arc); }
+.event.is-next .event__dot::after {
+  border-color: var(--arc);
+  background: var(--arc);
+  box-shadow: 0 0 8px 1px rgb(92 225 255 / 0.8);
+}
+.event__title, .event__where, .task p, .link__title {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* --- To-dos --- */
+.todo { list-style: none; margin: 6px 0 0; padding: 0; }
+.task { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: baseline; padding: 4px 0; }
+.task__box {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--tide);
+  border-radius: 2px;
+  transform: translateY(1px);
+}
+.task.is-done { color: var(--tide); }
+.task.is-done p { text-decoration: line-through; text-decoration-color: rgb(134 174 187 / 0.6); }
+.task.is-done .task__box { border-color: var(--arc); background: var(--arc); }
+.task__due { color: var(--tide); font-size: 12.5px; white-space: nowrap; }
+.task__due.amber { color: var(--amber); }
+
+/* --- Further reading: links you can click --- */
+.links { list-style: none; margin: 6px -8px 0; padding: 0; }
+.link {
+  display: grid;
+  grid-template-columns: 1fr 14px;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.links li + li .link { border-top: 1px solid rgb(134 174 187 / 0.12); border-radius: 0 0 3px 3px; }
+.link__title { font-size: 14.5px; }
+.link__site { grid-column: 1; color: var(--tide); font-size: 12.5px; }
+.link svg { grid-column: 2; grid-row: 1 / span 2; align-self: center; width: 12px; height: 12px; color: var(--tide); }
+.link:hover, .link.is-hover { background: rgb(92 225 255 / 0.09); }
+.link:hover .link__title, .link.is-hover .link__title { color: var(--arc); }
+.link:hover svg, .link.is-hover svg { color: var(--arc); }
+
+/* --- Sign-in: the one button --- */
+.sign-in__text { margin-top: 4px; }
+.act {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px 12px 8px;
+  border: 1px solid var(--amber);
+  border-radius: 3px;
+  background: rgb(255 181 71 / 0.12);
+  color: var(--amber);
+  font: 600 14.5px/1 var(--words);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.act:hover, .act.is-hover { background: var(--amber); color: #1a1205; }
+.state { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--tide); font-size: 13px; }
+.state i { width: 7px; height: 7px; border-radius: 50%; background: var(--arc); }
+.card[data-state="signing_in"] .state i { animation: waiting 1.4s ease-in-out infinite; }
+.card[data-state="signed_in"] .state { color: var(--arc); }
+@keyframes waiting { 50% { opacity: 0.25; } }
+:focus-visible { outline: 2px solid var(--arc); outline-offset: 2px; }
+
+/* --- Arriving and leaving: the one moment of motion --- */
+.card.is-arriving { animation: arrive 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.card.is-arriving::after {           /* a sweep of light, from the orb across the glass */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--toward-orb), transparent 30%, rgb(92 225 255 / 0.28) 45%,
+    rgb(230 248 255 / 0.5) 50%, rgb(92 225 255 / 0.28) 55%, transparent 70%);
+  animation: sweep 700ms ease-out both;
+}
+.card.is-arriving > * { animation: resolve 420ms 160ms ease-out both; }
+.card.is-renewed { animation: renew 600ms ease-out; }
+.card.is-leaving {
+  transition: opacity 380ms ease-in, transform 380ms ease-in, height 300ms 300ms ease-in,
+    padding 300ms 300ms ease-in, margin 300ms 300ms ease-in, border-width 300ms 300ms;
+  opacity: 0;
+  transform: scale(0.97);
+}
+@keyframes arrive { from { opacity: 0; transform: translateX(14px); } }
+.orb-left .card.is-arriving { animation-name: arrive-left; }
+@keyframes arrive-left { from { opacity: 0; transform: translateX(-14px); } }
+@keyframes sweep { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+.orb-left .card.is-arriving::after { animation-name: sweep-left; }
+@keyframes sweep-left { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes resolve { from { opacity: 0; filter: blur(3px); } }
+@keyframes renew { 30% { border-color: rgb(92 225 255 / 0.6); } }
+
+.still .card, .still .card > * { animation: none !important; }
+.still .card::after { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card.is-arriving, .card.is-arriving > *, .card.is-renewed { animation: fade 200ms both; }
+  .card.is-arriving::after { display: none; }
+  .card.is-leaving { transform: none; }
+  @keyframes fade { from { opacity: 0; } }
+}
+
+/* --- Demo mode (cards.html#demo): try every card by hand --- */
+.controls { display: none; }
+body.demo {
+  background: #04070a;
+  font-size: 14px;
+}
+body.demo.light { background: #f5f6f8; }
+body.demo.busy {
+  background:
+    linear-gradient(115deg, transparent 0 55%, #e8a33d 55% 63%, transparent 63%),
+    repeating-linear-gradient(0deg, #ffffff 0 22px, #dfe4ea 22px 24px, #ffffff 24px 46px, #1f2933 46px 49px),
+    #ffffff;
+}
+body.demo .stack { inset: 0 0 0 auto; width: 340px; }
+body.demo.orb-left .stack { inset: 0 auto 0 252px; }
+body.demo .controls {
+  display: grid;
+  gap: 14px;
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  width: 220px;
+  padding: 14px 16px 16px;
+  border: 1px solid rgb(92 225 255 / 0.2);
+  border-radius: 12px;
+  background: rgb(6 18 26 / 0.92);
+  color: #cfe9f2;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+.controls fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 6px; }
+.controls legend { padding: 0 0 6px; color: #7fd8ef; }
+.controls label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.controls input { accent-color: #5ce1ff; margin: 0; }
+.controls button {
+  padding: 5px 8px;
+  border: 1px solid rgb(92 225 255 / 0.3);
+  border-radius: 6px;
+  background: rgb(92 225 255 / 0.08);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+@media (max-width: 620px) {
+  body.demo .stack { width: 100%; }
+  body.demo .controls { display: none; }
+}

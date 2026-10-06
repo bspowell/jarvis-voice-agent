@@ -259,10 +259,38 @@ async def test_reading_needs_no_approval_and_jarvis_hears_only_the_report(monkey
     brain.events.subscribe(events.append)
 
     assert await say(brain, "What's my day?") == "The dentist at two, sir."
-    assert events == [Event("agent_started", {"agent": "calendar"})]
+    started, agenda = events
+    assert started == Event("agent_started", {"agent": "calendar"})
+    # What it read goes to the agenda card, beside the orb: exact times, from the tool's artifact.
+    assert agenda.name == "agenda"
+    assert [(e["title"], e["start"]) for e in agenda.details["events"]] == [
+        ("Standup", "2026-10-05T09:30"),
+        ("Dentist", "2026-10-05T14:00"),
+    ]
     messages = (await brain.agent.aget_state(brain.config())).values["messages"]
     assert messages[2].text == report
     assert "Main Dental" not in str(messages)  # the raw events stay with the Calendar agent
+
+
+async def test_after_a_change_no_card_shows_the_old_listing(monkeypatch):
+    signed_in()
+    lists_today = AIMessage(
+        "",
+        tool_calls=[ToolCall(name="list_events", args={"start_date": "2026-10-05"}, id="l1")],
+    )
+    brain, google, _, _ = brain_with(
+        monkeypatch,
+        jarvis_says=[ASKS_CALENDAR, AIMessage("Done, sir.")],
+        calendar_says=[lists_today, proposes_lunch("2026-10-05T12:00", "c1"), AIMessage("Booked.")],
+        readings=[Reading(decision="approve")],
+    )
+    events = []
+    brain.events.subscribe(events.append)
+    await say(brain, BOOK_LUNCH)
+    await say(brain, "Yes")
+    assert len(google.created) == 1
+    # The day it read no longer has lunch in it: an agenda card would be out of date.
+    assert "agenda" not in [event.name for event in events]
 
 
 async def test_not_signed_in_shows_the_button_instead_of_starting_the_agent(monkeypatch):

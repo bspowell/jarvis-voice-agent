@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis's cards</title>
+<link rel="stylesheet" href="cards.css">
+</head>
+<body class="orb-right align-bottom">
+<main id="stack" class="stack" aria-live="polite" aria-label="Jarvis's cards"></main>
+
+<!-- Demo mode (cards.html#demo): every card by hand, on a dark, light or busy screen. -->
+<form class="controls" aria-label="Try the cards">
+  <fieldset>
+    <legend>Show</legend>
+    <button type="button" data-demo="weather">Weather</button>
+    <button type="button" data-demo="agenda">Today's agenda</button>
+    <button type="button" data-demo="week">A week</button>
+    <button type="button" data-demo="tasks">To-dos</button>
+    <button type="button" data-demo="sources">Further reading</button>
+    <button type="button" data-demo="sign_in">Sign-in, step by step</button>
+  </fieldset>
+  <fieldset>
+    <legend>Conversation</legend>
+    <label><input type="checkbox" name="awake" checked> He's listening (cards stay)</label>
+    <button type="button" data-demo="clear">Clear the cards</button>
+  </fieldset>
+  <fieldset>
+    <legend>The orb is</legend>
+    <label><input type="radio" name="side" value="right" checked> To the right, at the bottom</label>
+    <label><input type="radio" name="side" value="left"> To the left, at the top</label>
+  </fieldset>
+  <fieldset>
+    <legend>Behind the cards</legend>
+    <label><input type="radio" name="backdrop" value="dark" checked> Dark screen</label>
+    <label><input type="radio" name="backdrop" value="light"> Light screen</label>
+    <label><input type="radio" name="backdrop" value="busy"> Busy screen</label>
+  </fieldset>
+</form>
+
+<script src="cards.js"></script>
+</body>
+</html>

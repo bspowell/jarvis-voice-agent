@@ -77,6 +77,7 @@ class Gate:
         question_open: Callable[[], bool],
         his_words: Callable[[], str],
         awake_changed: Callable[[bool], None] = lambda awake: None,
+        stopped: Callable[[], None] = lambda: None,
         timing: Timing | None = None,
     ) -> None:
         self.open_ears = open_ears  # a new Flux stream
@@ -84,6 +85,7 @@ class Gate:
         self.question_open = question_open  # is "Shall I…?" waiting for an answer?
         self.his_words = his_words  # what he said lately (to recognise his echo)
         self.awake_changed = awake_changed  # he woke (True) or fell asleep (False): for the orb
+        self.stopped = stopped  # you said "stop" (the conversation's over): the cards go too
         self.timing = timing or Timing()
         self.ears: stt.RecognizeStream | None = None  # Flux, while awake
         self.events: asyncio.Queue[stt.SpeechEvent | None] | None = None  # to LiveKit
@@ -204,6 +206,7 @@ class Gate:
             self.interrupt()
         self.drop_turn = self.you_talking and self.turn is Turn.PASS
         self.sleep(reason)
+        self.stopped()
 
     def sleep(self, reason: str) -> None:
         """Close Flux; only the spotter listens again."""

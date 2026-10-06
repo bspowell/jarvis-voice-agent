@@ -43,10 +43,12 @@ WRITABLE = {"owner", "writer", "writerWithoutPrivateAccess"}
 
 
 # --- Tools (what the Calendar agent's model sees) ---
-@tool(parse_docstring=True)
+# "content_and_artifact": the model reads the facts; the artifact (exact times, for the agenda
+# card beside the orb) rides along on the tool's message, unseen by the model.
+@tool(parse_docstring=True, response_format="content_and_artifact")
 async def list_events(
     start_date: str, end_date: str | None = None, search: str | None = None
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """List the user's events between two dates, soonest first, from every calendar they see,
     and the exact names of the calendars that can be changed.
 
@@ -199,15 +201,16 @@ async def calendar_client() -> AsyncIterator[GoogleCalendar]:
 # --- Reading ---
 async def find_events(
     calendar: GoogleCalendar, start_date: str, end_date: str | None, search: str | None
-) -> dict[str, Any]:
-    """Compact facts: each event's id, title, time in words, calendar and place."""
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Compact facts for the agent: each event's id, title, time in words, calendar and place.
+    And the same events for the agenda card, with exact times (None when nothing was read)."""
     try:
         first = date.fromisoformat(start_date)
         last = date.fromisoformat(end_date) if end_date else first
     except ValueError:
-        return {"error": "Dates must look like 2026-10-05."}
+        return {"error": "Dates must look like 2026-10-05."}, None
     if last < first:
-        return {"error": "end_date is before start_date."}
+        return {"error": "end_date is before start_date."}, None
     calendars = await calendar.calendars()
     zone = ZoneInfo(main_time_zone(calendars))
     time_min = datetime.combine(first, time(), zone).isoformat()
@@ -216,21 +219,31 @@ async def find_events(
     found = await asyncio.gather(
         *(calendar.events(c["id"], time_min, time_max, zone.key, search) for c in shown)
     )
-    events = sorted(
+    listed = sorted(
         (
-            (starts_at(event, zone), compact_event(event, source, zone))
+            (starts_at(event, zone), event, source)
             for source, items in zip(shown, found, strict=True)
             for event in items
             if worth_listing(event)
         ),
-        key=lambda pair: pair[0],
+        key=lambda row: row[0],
     )
-    result: dict[str, Any] = {"time_zone": zone.key, "events": [e for _, e in events[:MAX_EVENTS]]}
-    if len(events) > MAX_EVENTS:
-        result["more_not_shown"] = len(events) - MAX_EVENTS
+    events = listed[:MAX_EVENTS]
+    facts: dict[str, Any] = {
+        "time_zone": zone.key,
+        "events": [compact_event(event, source, zone) for _, event, source in events],
+    }
+    agenda: dict[str, Any] = {
+        "first_day": first.isoformat(),
+        "last_day": last.isoformat(),
+        "search": search,
+        "events": [agenda_entry(event, source, zone) for _, event, source in events],
+    }
+    if len(listed) > MAX_EVENTS:
+        facts["more_not_shown"] = agenda["more"] = len(listed) - MAX_EVENTS
     # Names to write with: the user says "the vacation one", Google knows "Jamie + Alex Vacation…"
-    result["calendars_you_can_change"] = writable_names(shown)
-    return result
+    facts["calendars_you_can_change"] = writable_names(shown)
+    return facts, agenda
 
 
 def shown_calendars(calendars: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -251,9 +264,7 @@ def worth_listing(event: dict[str, Any]) -> bool:
 
 
 def compact_event(event: dict[str, Any], source: dict[str, Any], zone: ZoneInfo) -> dict[str, Any]:
-    start, end = moment(event["start"], zone), moment(event["end"], zone)
-    if not isinstance(start, datetime):
-        end -= ONE_DAY  # Google ends all-day events the day after; people say the last day
+    start, end = event_span(event, zone)
     found = {
         "id": event["id"],
         "title": event.get("summary", "(no title)"),
@@ -263,6 +274,32 @@ def compact_event(event: dict[str, Any], source: dict[str, Any], zone: ZoneInfo)
     if event.get("location"):
         found["location"] = event["location"]
     return found
+
+
+def agenda_entry(event: dict[str, Any], source: dict[str, Any], zone: ZoneInfo) -> dict[str, Any]:
+    """One event for the agenda card: exact local times ("2026-10-05T14:00"), or days if all-day."""
+    start, end = event_span(event, zone)
+    entry = {
+        "title": event.get("summary", "(no title)"),
+        "start": local_time(start),
+        "end": local_time(end),
+        "calendar": calendar_name(source),
+    }
+    if event.get("location"):
+        entry["location"] = event["location"]
+    return entry
+
+
+def event_span(event: dict[str, Any], zone: ZoneInfo) -> tuple[date | datetime, date | datetime]:
+    """When it starts and ends; an all-day event ends on its last day."""
+    start, end = moment(event["start"], zone), moment(event["end"], zone)
+    if not isinstance(start, datetime):
+        end -= ONE_DAY  # Google ends all-day events the day after; people say the last day
+    return start, end
+
+
+def local_time(when: date | datetime) -> str:
+    return f"{when:%Y-%m-%dT%H:%M}" if isinstance(when, datetime) else when.isoformat()
 
 
 def moment(field: dict[str, str], zone: ZoneInfo) -> date | datetime:

@@ -13,6 +13,7 @@ request is saved in Jarvis's memory, under the tool call, until it finishes). Se
 """
 
 import json
+from collections.abc import Sequence
 from datetime import datetime
 
 import httpx
@@ -119,10 +120,27 @@ def make_calendar_tool(settings: Settings) -> BaseTool:
         # After you answer "Shall I…?", this tool runs again from the top. LangGraph then ignores
         # the new task and resumes the paused run from its saved state.
         result = await agent.ainvoke({"messages": [HumanMessage(task)]})
+        for card in cards_from(result["messages"]):
+            runtime.stream_writer(card)  # what it read, for the cards beside the orb
         # The report, plus facts Jarvis can trust: what you changed, what Google saved.
         return with_receipts(result["messages"], receipt_in, "Saved in the calendar")
 
     return calendar_agent
+
+
+def cards_from(messages: Sequence[AnyMessage]) -> list[Event]:
+    """What the agent last read (events, tasks), from its listings' artifacts: the facts for the
+    agenda and to-dos cards. None after a change: those listings may be out of date."""
+    results = [m for m in messages if isinstance(m, ToolMessage)]
+    if any(m.name in WRITE_TOOLS for m in results):
+        return []
+    cards = {}
+    for message in results:  # the last listing of each kind wins
+        if message.artifact and message.name == list_events.name:
+            cards["agenda"] = message.artifact
+        elif message.artifact and message.name == list_tasks.name:
+            cards["tasks"] = message.artifact
+    return [Event(name, details) for name, details in cards.items()]
 
 
 def receipt_in(message: AnyMessage) -> str | None:

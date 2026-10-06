@@ -47,9 +47,10 @@ def chat() -> None:
         memory = runner.run(open_memory(settings.data_dir / DB_FILE))
         try:
             brain = make_brain(settings, memory)
-            sign_ins = SignInRequests()
+            sign_ins, links = SignInRequests(), FurtherReading()
             brain.events.subscribe(show_event)
             brain.events.subscribe(sign_ins.note)
+            brain.events.subscribe(links.note)
             with console.status("Calling the roll…"):
                 roll = runner.run(roll_call(settings))
             present = sum(health.present for health in roll.values())
@@ -57,7 +58,7 @@ def chat() -> None:
             show_absent_agents(roll)
             if earlier := runner.run(brain.messages_today()):
                 console.print(f"[dim](Continuing today's conversation: {earlier} messages.)[/]")
-            _chat_loop(runner, brain, settings, sign_ins)
+            _chat_loop(runner, brain, settings, sign_ins, links)
         finally:
             runner.run(memory.close())
     console.print("\n[bold cyan]Jarvis:[/] Very good, sir.")
@@ -87,6 +88,22 @@ class SignInRequests:
         return services
 
 
+class FurtherReading:
+    """The Search agent's links, printed under Jarvis's reply (the desktop shows them on a card)."""
+
+    def __init__(self) -> None:
+        self.links: list[dict[str, str]] = []
+
+    def note(self, event: Event) -> None:
+        if event.name == "further_reading":
+            self.links = event.details["sources"]
+
+    def show(self) -> None:
+        for link in self.links:
+            console.print(f"[dim]  ↳ {escape(link['title'])}: {escape(link['url'])}[/]")
+        self.links = []
+
+
 def show_absent_agents(roll: dict[str, Health]) -> None:
     for name, health in roll.items():
         if not health.present:
@@ -94,7 +111,11 @@ def show_absent_agents(roll: dict[str, Health]) -> None:
 
 
 def _chat_loop(
-    runner: asyncio.Runner, brain: Brain, settings: Settings, sign_ins: SignInRequests
+    runner: asyncio.Runner,
+    brain: Brain,
+    settings: Settings,
+    sign_ins: SignInRequests,
+    links: FurtherReading,
 ) -> None:
     while True:
         try:
@@ -106,6 +127,7 @@ def _chat_loop(
         if not text:
             continue
         _reply(runner, brain, text)
+        links.show()
         for service in sign_ins.take():
             if sign_in_button(runner, settings, Service(service)):
                 said = ACCOUNTS[Service(service)].signed_in

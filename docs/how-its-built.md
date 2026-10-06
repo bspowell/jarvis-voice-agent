@@ -4,7 +4,8 @@
 - **Ears**: "Hey Jarvis" heard on your Mac (openWakeWord) → opens speech-to-text + end of turn (Deepgram Flux)
 - **Brain**: Jarvis orchestrator (Sonnet 5) → sub-agents (Notes, Calendar + Tasks, Search) → tools
 - **Mouth**: text-to-speech (ElevenLabs Jarvis voice, `eleven_v4_turbo`; Kokoro offline fallback)
-- **Face**: the orb, a holographic overlay on your screen (AppKit window + WebGL); info cards next (Phase 11)
+- **Face**: the orb, a holographic overlay on your screen (AppKit window + WebGL), with cards beside it: the weather,
+  your day, to-dos, pages for further reading, sign-in buttons
 
 ```
 Desktop app (mic, speakers) ⇄ LiveKit server (on your Mac) ⇄ Voice agent (ears + mouth) → Brain
@@ -19,9 +20,9 @@ Text mode: `jarvis chat` → Brain directly
 | `src/jarvis/config.py` | Typed settings: secrets from `.env`, preferences from `jarvis.toml` |
 | `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat` (incl. the sign-in buttons), `up` (everything voice needs), `desktop` (the desktop app alone), `login` / `logout` (`google` or `notion`), `doctor` (keys, sign-ins, models, sub-agent health, voice + LiveKit server) |
 | `src/jarvis/up.py` | `jarvis up`: starts the LiveKit server, the voice agent and the desktop app in order, tags their output (also saved to `data/logs/up.log`), stops them in reverse |
-| `src/jarvis/desktop/` | The desktop app: `app.py` (the orb's window on the main thread, your line to Jarvis on its own thread) · `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog; tells the orb his state, whether he's awake and his voice level; answers his display commands) · `overlay.py` (the see-through, click-through window; remembers where it is and its centrepiece) · `demo.py` (`jarvis desktop --demo`) · `web/` (the orb: `orb.html`, `orb.js` = rings + WebGL, `cores.js` = the 3D centrepieces) |
-| `src/jarvis/display.py` | The orb's display commands (show / hide / move / switch), shared by the tool, the voice agent and the desktop app |
-| `src/jarvis/events.py` | Event bus: tools announce what's happening (e.g. a sub-agent started); chat / voice / orb decide how to show it |
+| `src/jarvis/desktop/` | The desktop app: `app.py` (the orb's window on the main thread, your line to Jarvis on its own thread) · `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog; tells the orb his state, whether he's awake and his voice level; answers his display commands; passes his events to the cards and your sign-in clicks to him) · `overlay.py` (the see-through, click-through window; remembers where it is and its centrepiece) · `card_panel.py` (the cards' panel beside it: takes clicks only on links and buttons, never your keyboard) · `cards.py` (what each card says) · `windows.py` (what both windows share) · `demo.py` (`jarvis desktop --demo`) · `web/` (the orb: `orb.html`, `orb.js` = rings + WebGL, `cores.js` = the 3D centrepieces; the cards: `cards.html`, `cards.css`, `cards.js`) |
+| `src/jarvis/display.py` | The orb's display commands (show / hide / move / switch / clear the cards), and the names the voice agent and desktop app use for cards and sign-in clicks |
+| `src/jarvis/events.py` | Event bus: tools announce what's happening (a sub-agent started, the weather, your agenda…); chat / voice / the cards decide how to show it |
 | `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality · `search_agent.md` · `calendar_agent.md` · `notes_agent.md` · `approval_question.md` / `approval_reply.md` = asking "Shall I…?" and reading the answer · `summary.md` = how long days are condensed) |
 | `src/jarvis/brain/` | `models.py` (model settings) · `jarvis.py` (the agent) · `brain.py` (the doorway) · `context.py` (what each run hands his tools: the orb's controls) · `approvals.py` (confirmations) · `memory.py` (SQLite memory + its middleware) · `greeting.py` · `graph.py` (Studio entry) |
 | `src/jarvis/agents/` | Sub-agents, each wrapped as one tool for Jarvis: `search.py` · `calendar.py` (events + to-dos) · `notes.py` (Notion + files) · `writes.py` (approvals + receipts, shared) · `registry.py` (the list + roll call) |
@@ -94,6 +95,20 @@ desktop app ─ main thread: a see-through window above everything (AppKit) → 
   pick and the orb's corner are remembered in `data/orb.json`.
 - Clicks go through it; it never takes your keyboard focus; ~4% of one core asleep, ~11% while you talk.
 
+## The cards: what he's just looked up
+- When a tool gets something worth showing, it publishes the facts as an event; the voice agent sends them to the
+  desktop app as a text message; the desktop app draws a card beside the orb.
+```
+"Hey Jarvis, what's my day look like, and will I need an umbrella?"
+1. the weather tool publishes the forecast · the Calendar agent publishes today's events
+2. the voice agent sends both to the desktop app (text messages, topic "jarvis.events")
+3. the desktop app writes each card's text; a web page draws them beside the orb
+"Sign in with Google" card → your click → a request to the voice agent → it opens your browser
+```
+- Clicks go through the cards except on a link or button; they never take your keyboard.
+- One card per kind; they fade 10 s after the conversation; "clear the cards" or "stop" clear them; hiding the orb
+  hides them (a sign-in card still shows).
+- Text chat prints the further-reading links under his reply; no other cards there.
 
 ## Config
 - `.env`: secrets, gitignored · `.env.example`: template, committed. Includes Jarvis's Google sign-in app (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) and the LiveKit server (`LIVEKIT_URL` / `_API_KEY` / `_API_SECRET`; the defaults are the local dev server's fixed, public ones)
@@ -110,5 +125,5 @@ desktop app ─ main thread: a see-through window above everything (AppKit) → 
 - `langgraph dev`: LangGraph Studio, a visual debugger for the agent graph
 - `jarvis up`: the LiveKit server + voice agent + desktop app, colour-tagged output; Ctrl+C (or closing the window) stops them in reverse
 - `lk agent console`: the voice agent alone, with your mic + speakers in the terminal · `lk agent debugger`: typed turns, no audio, prints replies + timings
-- `jarvis desktop --demo`: the orb on your screen, every look and centrepiece in turn, no Jarvis needed · `src/jarvis/desktop/web/orb.html#demo` in a browser: try looks, centrepieces and backgrounds by hand
+- `jarvis desktop --demo`: the cards, then the orb's every look and centrepiece in turn, no Jarvis needed · `src/jarvis/desktop/web/orb.html#demo` and `cards.html#demo` in a browser: try looks, centrepieces, cards and backgrounds by hand
 - `livekit-server --dev`: the local LiveKit server (Homebrew `livekit`); `jarvis up` starts it unless one is running

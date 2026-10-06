@@ -23,7 +23,7 @@ from jarvis.tools.google_tasks import (
 
 
 async def test_open_tasks_from_every_list_soonest_due_first():
-    found = await find_tasks(FakeGoogleTasks(), None, False)
+    found, todo = await find_tasks(FakeGoogleTasks(), None, False)
     assert found == {
         "tasks": [
             {"id": "task-milk", "title": "Milk", "list": "Shopping", "due": "Tue 6 Oct 2026"},
@@ -42,15 +42,24 @@ async def test_open_tasks_from_every_list_soonest_due_first():
         ],  # done ones and empty lines aren't listed
         "task_lists": ["My Tasks", "Shopping"],
     }
+    assert todo == {  # for the to-dos card: due days as dates
+        "due_by": None,
+        "tasks": [
+            {"title": "Milk", "due": "2026-10-06", "done": False, "list": "Shopping"},
+            {"title": "Buy candles", "due": "2026-10-09", "done": False, "list": "My Tasks"},
+            {"title": "Call the plumber", "due": None, "done": False, "list": "My Tasks"},
+        ],
+    }
 
 
 async def test_due_by_keeps_only_tasks_due_by_that_day():
-    found = await find_tasks(FakeGoogleTasks(), "2026-10-07", False)
+    found, todo = await find_tasks(FakeGoogleTasks(), "2026-10-07", False)
     assert [task["title"] for task in found["tasks"]] == ["Milk"]
+    assert todo["due_by"] == "2026-10-07"
 
 
 async def test_ticked_off_tasks_only_when_asked_for():
-    found = await find_tasks(FakeGoogleTasks(), None, True)
+    found, _todo = await find_tasks(FakeGoogleTasks(), None, True)
     taxes = next(task for task in found["tasks"] if task["title"] == "File taxes")
     assert taxes["done"] is True
 

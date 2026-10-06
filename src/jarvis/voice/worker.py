@@ -111,6 +111,7 @@ async def jarvis_session(ctx: JobContext) -> None:
         # the room goes too, and a desktop that's still open starts a fresh one.
         room_options=room_io.RoomOptions(delete_room_on_close=True),
     )
+    agent.serve_desktop()  # your clicks on the desktop's sign-in cards
     await agent.greet()  # only now: the audio output is final once start() returns
 
 
