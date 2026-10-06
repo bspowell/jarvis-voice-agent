@@ -7,6 +7,8 @@
   he's awake, and how loud his voice is. His display commands ("hide the orb") come in as RPCs.
 - His Brain's events come in as text: the cards beside the orb (the weather, the agenda…). Your
   click on a sign-in card goes back to him as an RPC: he opens the browser.
+- Mute: the mic track is muted, and the Mac stops recording (its orange mic dot goes out). The
+  talk shortcut is an RPC too: he listens to you now (he wakes, or stops talking).
 - Watchdog: if he doesn't arrive, leaves, or the room ends (his session ended), it starts over
   in a new room. Today's conversation is in his memory, so nothing is lost.
 """
@@ -30,6 +32,7 @@ from jarvis.display import (
     DISPLAY_METHOD,
     EVENTS_TOPIC,
     SIGN_IN_METHOD,
+    TALK_METHOD,
     DisplayCommand,
 )
 from jarvis.events import Event
@@ -51,13 +54,14 @@ VOICE_RATE = 24000  # his voice as it arrives (ElevenLabs and Kokoro both speak 
 LEVELS_PER_SECOND = 30  # how often the orb hears his loudness (it smooths in between)
 QUIET_DB, LOUD_DB = -50.0, -12.0  # his voice's level: this quiet shows as 0, this loud as 1
 SIGN_IN_SECONDS = 3.0  # how long he may take to answer a click on "Sign in"
+TALK_SECONDS = 3.0  # how long he may take to answer the talk shortcut
 
 
 class Orb(Protocol):
     """Where the line shows what Jarvis is doing: the overlay, in the desktop app."""
 
     def update(self, **fields: Any) -> None:
-        """Any of `state`, `awake`, `level` changed. Called from the line's thread."""
+        """Any of `state`, `awake`, `level`, `muted` changed. Called from the line's thread."""
 
     async def apply(self, command: DisplayCommand) -> str:
         """Show, hide or move the orb; returns what it did, in words."""
@@ -118,9 +122,12 @@ class RoomClient:
         self.room: rtc.Room | None = None  # the room you're in, if any
         self.jarvis: str | None = None  # his identity in it, once he's there
         self.loop: asyncio.AbstractEventLoop | None = None  # the line's (for clicks)
+        self.muted = False  # your mic, by your choice (kept when the watchdog starts a new room)
+        self.mic_track: rtc.LocalAudioTrack | None = None  # your mic in the room you're in
 
     async def run(self) -> None:
         self.loop = asyncio.get_running_loop()
+        self.orb.update(muted=self.muted)
         audio = rtc.PlatformAudio()  # your Mac's mic and speakers, through WebRTC
         try:
             while True:
@@ -179,6 +186,9 @@ class RoomClient:
             track = rtc.LocalAudioTrack.create_audio_track("microphone", mic)
             options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
             await room.local_participant.publish_track(track, options)
+            self.mic_track = track
+            if self.muted:
+                track.mute()
             logger.info("Joined %s with your mic; waiting for Jarvis…", name)
             for participant in room.remote_participants.values():
                 if is_jarvis(participant):
@@ -194,7 +204,7 @@ class RoomClient:
             await over.wait()
         finally:
             self.agent_state = "away"
-            self.room = self.jarvis = None
+            self.room = self.jarvis = self.mic_track = None
             self.orb.update(state="away", awake=False, level=0)
             await room.disconnect()
             mic.close()
@@ -278,6 +288,34 @@ class RoomClient:
             self.orb.show_event(Event("sign_in_failed", {"service": service}))
             return
         self.orb.show_event(Event("signing_in", {"service": service}))
+
+    def mute(self, muted: bool) -> None:
+        """Mute or unmute your mic. Muted, the Mac stops recording (measured: muting the track
+        stops WebRTC's recording; taking the track out of the room doesn't) and Jarvis hears
+        silence. Call it on the line's loop."""
+        self.muted = muted
+        if self.mic_track is not None:
+            if muted:
+                self.mic_track.mute()
+            else:
+                self.mic_track.unmute()
+        self.orb.update(muted=muted)
+
+    async def talk(self) -> None:
+        """The talk shortcut: ask Jarvis to listen to you now (he wakes, or stops talking)."""
+        room, jarvis = self.room, self.jarvis
+        if room is None or jarvis is None:
+            logger.info("Jarvis isn't in the room yet.")
+            return
+        try:
+            await room.local_participant.perform_rpc(
+                destination_identity=jarvis,
+                method=TALK_METHOD,
+                payload="",
+                response_timeout=TALK_SECONDS,
+            )
+        except Exception as error:  # he's gone or busy: he'll still hear "Hey Jarvis"
+            logger.warning("Jarvis didn't get the talk shortcut: %s", error)
 
     def show_words(self, reader: rtc.TextStreamReader, identity: str) -> None:
         """What you said and what he said, as LiveKit transcribes them (final versions only)."""

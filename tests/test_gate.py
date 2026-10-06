@@ -396,6 +396,43 @@ async def test_usage_reports_always_reach_livekit():
     assert session.livekit == [usage]
 
 
+# --- The talk shortcut (⌃⌥J on the desktop) ---
+async def test_the_talk_shortcut_wakes_him_without_a_pre_roll():
+    async with Session() as session:
+        await session.say(frame(), frame())
+        session.gate.listen_now("you pressed the talk shortcut")
+        assert session.gate.awake
+        assert session.ears.pushed == []  # you haven't said anything yet
+        assert session.awake == [True]  # the orb grows
+        live = frame()
+        await session.say(live)
+        assert session.ears.pushed == [live]
+
+
+async def test_the_talk_shortcut_stops_him_and_lets_your_words_through():
+    async with Session() as session:
+        await awake_and_speaking(session)
+        session.gate.listen_now("you pressed the talk shortcut")
+        assert session.interrupted == 1
+        await session.flux_hears(start(), interim("Actually"))  # before he has quite stopped
+        await session.flux_hears(final("Actually, make it Friday."), end())
+    assert heard(session.livekit) == [
+        *("start", "interim: Actually", "final: Actually, make it Friday.", "end")
+    ]
+
+
+async def test_the_talk_shortcut_while_listening_gives_you_longer():
+    async with Session() as session:
+        await session.say(frame(WAKE))
+        await session.he_is("listening")
+        await asyncio.sleep(FAST.after_wake * 0.7)
+        session.gate.listen_now("you pressed the talk shortcut")
+        await asyncio.sleep(FAST.after_wake * 0.7)
+        assert session.gate.awake  # the wait started again
+        await asyncio.sleep(FAST.after_wake * 0.6)
+        assert not session.gate.awake
+
+
 # --- The words ---
 @pytest.mark.parametrize(
     ("said", "cut_in"),

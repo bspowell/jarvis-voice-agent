@@ -8,6 +8,7 @@ shows what Jarvis has just looked up; it follows the orb, and hides with it.
 
 AppKit only works on the main thread: build and change the window there. Three methods are safe
 from any thread: `update`, `apply` and `show_event` (they pass the work to the main thread).
+Watchers (the menu-bar icon) hear each update, on the main thread.
 """
 
 import asyncio
@@ -107,6 +108,7 @@ class Overlay:
         self.core: Core = remembered.core
         self.latest: dict[str, Any] = {"core": self.core}  # all the page has been told
         self.loaded = False
+        self.watchers: list[Callable[[dict[str, Any]], None]] = []  # told of each update
 
         frame = Foundation.NSMakeRect(0, 0, size, size)
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
@@ -138,7 +140,8 @@ class Overlay:
 
     # --- From any thread ---
     def update(self, **fields: Any) -> None:
-        """Show what's happening: any of `state`, `awake` (bool), `level` (0 to 1), `core`."""
+        """Show what's happening: any of `state`, `awake`, `muted` (bools), `level` (0 to 1),
+        `core`."""
         AppHelper.callAfter(self.tell_page, fields)
         if conversation := {key: fields[key] for key in CONVERSATION if key in fields}:
             AppHelper.callAfter(self.cards.update, conversation)  # cards fade when it ends
@@ -201,11 +204,20 @@ class Overlay:
         self.remember()
         return f"The orb is showing, {self.corner} of the {screen_name(screen)}."
 
+    def set_core(self, core: str) -> None:
+        """A new centrepiece, from the menu: remembered, and the orb stays shown or hidden."""
+        if core in get_args(Core):
+            self.core = core
+            self.tell_page({"core": core})
+            self.remember()
+
     def remember(self) -> None:
         Remembered(self.corner, screen_name(self.screen), self.core).save(self.memory)
 
     def tell_page(self, fields: dict[str, Any]) -> None:
         self.latest.update(fields)
+        for watcher in self.watchers:
+            watcher(fields)
         if self.loaded:
             script = f"orb.update({json.dumps(fields)})"
             self.web.evaluateJavaScript_completionHandler_(script, None)

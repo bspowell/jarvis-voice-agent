@@ -4,6 +4,7 @@
    - state: "away" (he isn't connected) or LiveKit's "initializing" / "listening" / "thinking" /
      "speaking"
    - awake: true while the wake-word gate is open, i.e. he's listening to you
+   - muted: true while your mic is muted (the menu bar, or ⌃⌥M): he can't hear you
    - level: how loud his voice is right now, 0 to 1
    - core: the centrepiece in the middle, from cores.js: "jarvis", "mjolnir", "stormbreaker",
      "iron-man-1" or "infinity-war"
@@ -23,6 +24,7 @@ const LOOKS = {
   listening: { size: 1.0, light: 0.85, spin: 0.25, wobble: 0.03, scan: 0, grey: 0 },
   thinking: { size: 0.94, light: 1.0, spin: 1.1, wobble: 0.05, scan: 1, grey: 0 },
   speaking: { size: 1.0, light: 1.0, spin: 0.35, wobble: 0.03, scan: 0, grey: 0 },
+  muted: { size: 0.48, light: 0.32, spin: 0.0, wobble: 0.0, scan: 0, grey: 1 }, // grey and still
 };
 const EASE_SECONDS = 0.35; // how quickly the orb moves to a new look
 const IDLE_FPS = 15; // asleep or away, once settled: easy on the GPU
@@ -34,23 +36,25 @@ const FIT = 0.36; // the band's radius at full size, as a share of the canvas (r
 const SWAP_SECONDS = 0.18; // a new core: the old one fades out, then the new one fades in
 
 // --- What the desktop app tells us ---
-const told = { state: "away", awake: false };
+const told = { state: "away", awake: false, muted: false };
 let look = LOOKS.away;
 let loudness = 0; // what we were told
 let level = 0; // what we show: rises fast, falls slowly, like a VU meter
 let wantedCore = "jarvis"; // what we were told to show in the middle
 
-function mood({ state, awake }) {
+function mood({ state, awake, muted }) {
   if (state === "away" || state === "thinking" || state === "speaking") return state;
+  if (muted) return "muted"; // he can still finish a reply, but can't hear you
   return awake ? "listening" : "asleep"; // "listening" or "initializing" with the gate closed
 }
 
 const clamp01 = (x) => Math.min(1, Math.max(0, Number(x) || 0));
 
 window.orb = {
-  update({ state, awake, level: voice, core } = {}) {
+  update({ state, awake, muted, level: voice, core } = {}) {
     if (state !== undefined) told.state = state;
     if (awake !== undefined) told.awake = Boolean(awake);
+    if (muted !== undefined) told.muted = Boolean(muted);
     if (voice !== undefined) loudness = clamp01(voice);
     if (core in CORES) wantedCore = core;
     look = LOOKS[mood(told)] ?? LOOKS.asleep;
@@ -439,7 +443,8 @@ function frame(now) {
   if (demo) return requestAnimationFrame(frame); // in a browser, for trying looks: every frame
   // Sleep until the next frame is due. Asking for every frame would wake WebKit at the screen's
   // refresh rate (120 Hz here) even when nothing is drawn: most of the orb's cost while asleep.
-  const fps = settled() && (look === LOOKS.asleep || look === LOOKS.away) ? IDLE_FPS : ACTIVE_FPS;
+  const resting = look === LOOKS.asleep || look === LOOKS.away || look === LOOKS.muted;
+  const fps = settled() && resting ? IDLE_FPS : ACTIVE_FPS;
   setTimeout(() => requestAnimationFrame(frame), Math.max(0, 1000 / fps - 4));
 }
 
@@ -460,6 +465,7 @@ function startDemo() {
   const states = {
     away: { state: "away" },
     asleep: { state: "listening", awake: false },
+    muted: { state: "listening", awake: false, muted: true },
     listening: { state: "listening", awake: true },
     thinking: { state: "thinking", awake: true },
     speaking: { state: "speaking", awake: true },
@@ -469,7 +475,8 @@ function startDemo() {
   const apply = () => {
     document.body.classList.toggle("light", form.elements.backdrop.value === "light");
     document.body.classList.toggle("busy", form.elements.backdrop.value === "busy");
-    orb.update({ ...states[form.elements.look.value], level: 0, core: form.elements.core.value });
+    const chosen = { muted: false, ...states[form.elements.look.value] };
+    orb.update({ ...chosen, level: 0, core: form.elements.core.value });
   };
   form.addEventListener("input", apply);
   apply();

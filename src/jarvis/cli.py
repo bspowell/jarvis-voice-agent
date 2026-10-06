@@ -214,18 +214,41 @@ def desktop(
         bool, typer.Option(help="Show the orb's looks with a pretend voice (no Jarvis needed).")
     ] = False,
 ) -> None:
-    """The desktop app: the orb, and Jarvis on your mic and speakers (he must be running)."""
-    from jarvis.desktop.app import run_desktop  # loads LiveKit: only when asked
+    """The desktop app (Jarvis.app opens it): Jarvis's menu-bar icon, the orb and your mic.
+    Start him from the icon's menu, or with ⌃⌥J."""
+    from jarvis.desktop.app import run_desktop  # loads LiveKit and AppKit: only when asked
 
-    run_desktop(get_settings(), demo=demo)
+    raise typer.Exit(run_desktop(get_settings(), demo=demo))
 
 
 @app.command()
 def up() -> None:
-    """Start everything voice needs: the LiveKit server, the voice agent and the desktop app."""
-    from jarvis.up import run_up
+    """Start Jarvis now: the desktop app, the LiveKit server and the voice agent, output here."""
+    from jarvis.desktop.app import run_desktop
 
-    raise typer.Exit(run_up(get_settings()))
+    raise typer.Exit(run_desktop(get_settings(), start_now=True))
+
+
+@app.command()
+def install() -> None:
+    """Build Jarvis.app (macOS gives it the mic; it opens at login) and open it."""
+    from jarvis.desktop import install as bundle
+
+    try:
+        for line in bundle.install(get_settings()):
+            console.print(line)
+    except bundle.InstallFailed as error:
+        console.print(f"[red]{error}[/]")
+        raise typer.Exit(1) from None
+
+
+@app.command()
+def uninstall() -> None:
+    """Quit and remove Jarvis.app, and stop it opening at login."""
+    from jarvis.desktop import install as bundle
+
+    for line in bundle.uninstall():
+        console.print(line)
 
 
 @app.command()

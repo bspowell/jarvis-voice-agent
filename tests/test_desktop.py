@@ -1,43 +1,43 @@
-"""The desktop app: the line to Jarvis on its own thread, where the orb's window goes, and what
-it remembers between launches."""
+"""The desktop app: its second thread (the line), one copy at a time, where the orb's window
+goes, and what it remembers between launches."""
 
 import asyncio
 import threading
 
-from jarvis.desktop.app import Line
+from jarvis.desktop.app import hold_lock
 from jarvis.desktop.card_panel import TUCK, WIDTH, beside, spot_under
+from jarvis.desktop.line import Line
 from jarvis.desktop.overlay import MARGIN, Remembered, corner_origin
 
 
-def test_the_line_runs_on_its_own_thread_until_hung_up():
-    started, over = threading.Event(), threading.Event()
+def test_the_line_runs_work_on_its_own_thread_until_closed():
+    line = Line()
+    line.start()
     threads: list[str] = []
 
-    async def call() -> None:
+    async def work() -> str:
         threads.append(threading.current_thread().name)
-        started.set()
-        await asyncio.sleep(3600)
+        await asyncio.sleep(0)
+        return "done"
 
-    line = Line(call(), when_over=over.set)
-    line.start()
-    assert started.wait(2)
-    line.hang_up()
-    assert over.wait(2)  # the app hears the line has ended (it then closes the window)
-    line.wait(2)
+    assert line.submit(work()).result(timeout=2) == "done"
+    called = threading.Event()
+    line.call(called.set)  # a plain function, from this (another) thread
+    assert called.wait(2)
+    line.close()
     assert threads == ["line-to-jarvis"]
     assert not line.thread.is_alive()
-    line.hang_up()  # hanging up twice is harmless
+    line.call(called.set)  # after closing: ignored, no error
 
 
-def test_a_line_that_breaks_still_tells_the_app():
-    over = threading.Event()
-
-    async def call() -> None:
-        raise RuntimeError("the line broke")
-
-    line = Line(call(), when_over=over.set)
-    line.start()
-    assert over.wait(2)
+def test_only_one_desktop_app_runs_at_a_time(tmp_path):
+    first = hold_lock(tmp_path / "desktop.lock")
+    assert first is not None
+    assert hold_lock(tmp_path / "desktop.lock") is None  # a second app would hear you too
+    first.close()  # the first one quits
+    again = hold_lock(tmp_path / "desktop.lock")
+    assert again is not None
+    again.close()
 
 
 def test_each_corner_keeps_clear_of_the_screen_edges():

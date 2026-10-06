@@ -2,7 +2,8 @@
 
 They travel tool → voice agent → LiveKit RPC → desktop app, and the desktop's answer (what it
 actually did) travels back as the tool's result. Shared by all three, so it imports nothing heavy.
-Also here: the names the voice agent and the desktop app use for the cards beside the orb.
+Also here: the names the voice agent and the desktop app use for the cards beside the orb, and
+for the talk shortcut.
 """
 
 import json
@@ -26,6 +27,7 @@ DISPLAY_METHOD = "jarvis.display"  # the RPC method the desktop app answers
 AWAKE = "jarvis.awake"  # the voice agent's room attribute: "true" while the wake-word gate is open
 EVENTS_TOPIC = "jarvis.events"  # voice agent → desktop app: the Brain's events (some become cards)
 SIGN_IN_METHOD = "jarvis.sign_in"  # desktop app → voice agent: you clicked a card's "Sign in"
+TALK_METHOD = "jarvis.talk"  # desktop app → voice agent: you pressed the talk shortcut (⌃⌥J)
 
 
 @dataclass(frozen=True)

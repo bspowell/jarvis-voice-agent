@@ -10,8 +10,9 @@ A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, hologr
 ## Commands
 | Command | What it does |
 |---|---|
-| `uv run jarvis up` | Talk to Jarvis by voice: starts the local LiveKit server (`brew install livekit`), the voice agent and the desktop app (your mic + speakers, echo-cancelled). Say "Hey Jarvis…"; after he answers, 6 s to follow up without it; "Jarvis" or "stop" cuts him off. Ctrl+C stops it all; the output is also in `data/logs/up.log` |
-| `uv run jarvis desktop` | Just the desktop app (needs the server and agent running) |
+| `uv run jarvis install` | Builds `~/Applications/Jarvis.app` (macOS gives it the mic) and opens it: Jarvis's icon in the menu bar. Start him there or with ⌃⌥J (talk: wakes him, or cuts him off); ⌃⌥M mutes your mic. Start Options: launch at login, show in the menu bar at login (the default), or neither. `uninstall` removes it |
+| `uv run jarvis up` | The same app from a terminal, starting Jarvis at once: the local LiveKit server (`brew install livekit`), the voice agent, the orb and your mic (echo-cancelled), everyone's output here and in `data/logs/up.log`. Say "Hey Jarvis…"; after he answers, 6 s to follow up without it; "Jarvis" or "stop" cuts him off. Ctrl+C stops it all (quit Jarvis.app first: one app at a time) |
+| `uv run jarvis desktop` | The menu-bar app alone (what Jarvis.app opens); `--demo` shows the orb's looks with no Jarvis |
 | `lk agent console` | The voice agent alone, with your mic and speakers in the terminal (`m` mute, `Ctrl+T` type, `q` quit) |
 | `lk agent debugger start` / `say "…"` / `stop` | Drive the voice agent with typed turns (no audio): replies + timings |
 | `uv run jarvis chat` | Talk to Jarvis in the terminal (remembers today's conversation; Search, Calendar (+ to-dos) and Notes agents; asks before any change) |

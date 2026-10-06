@@ -10,6 +10,7 @@ Deepgram Flux (his ears) and which of Flux's words reach LiveKit:
   Anything else said over him is ignored, and his own voice leaking back is dropped.
 - "Stop" ends the conversation: he stops talking and listening, and a turn already under way
   (someone talking nearby) is dropped. "Wait" only stops him talking.
+- The talk shortcut (⌃⌥J, on the desktop): he listens to you now: he wakes, or stops talking.
 - Quiet: 6 s after he answers (10 s after "Shall I…?", 8 s after the wake word alone) → asleep.
 """
 
@@ -164,6 +165,17 @@ class Gate:
                 self.end_conversation("heard “stop”")
             else:
                 self.cut_in("heard “Hey Jarvis”")
+
+    def listen_now(self, reason: str) -> None:
+        """The talk shortcut: asleep, he wakes (no pre-roll: you haven't spoken yet); talking,
+        he stops so you can speak; already listening, the quiet timer starts again."""
+        if self.he_is_speaking:
+            self.cut_in(reason)
+        elif not self.awake:
+            self.wake(reason, pre_roll=False)
+        else:
+            self.cancel_quiet_timer()
+            self.update_quiet_timer()
 
     def agent_state_changed(self, state: str) -> None:
         """LiveKit's agent state (from the session's `agent_state_changed` event)."""

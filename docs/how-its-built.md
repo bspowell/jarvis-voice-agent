@@ -6,10 +6,11 @@
 - **Mouth**: text-to-speech (ElevenLabs Jarvis voice, `eleven_v4_turbo`; Kokoro offline fallback)
 - **Face**: the orb, a holographic overlay on your screen (AppKit window + WebGL), with cards beside it: the weather,
   your day, to-dos, pages for further reading, sign-in buttons
+- **Home**: a menu-bar icon (Jarvis.app, opened at login) that starts and stops the rest; ⌃⌥J talks to him, ⌃⌥M mutes
 
 ```
-Desktop app (mic, speakers) ⇄ LiveKit server (on your Mac) ⇄ Voice agent (ears + mouth) → Brain
-`jarvis up` starts all three · the orb lives in the desktop app
+Jarvis.app → Desktop app (menu-bar icon, orb, mic, speakers) ⇄ LiveKit server (on your Mac) ⇄ Voice agent → Brain
+the desktop app starts the server and the agent when you start Jarvis · `jarvis up`: the same, from a terminal
 Text mode: `jarvis chat` → Brain directly
 ```
 
@@ -18,9 +19,9 @@ Text mode: `jarvis chat` → Brain directly
 |---|---|
 | `src/jarvis/` | The app. src layout: tests import the installed package, never loose files |
 | `src/jarvis/config.py` | Typed settings: secrets from `.env`, preferences from `jarvis.toml` |
-| `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat` (incl. the sign-in buttons), `up` (everything voice needs), `desktop` (the desktop app alone), `login` / `logout` (`google` or `notion`), `doctor` (keys, sign-ins, models, sub-agent health, voice + LiveKit server) |
-| `src/jarvis/up.py` | `jarvis up`: starts the LiveKit server, the voice agent and the desktop app in order, tags their output (also saved to `data/logs/up.log`), stops them in reverse |
-| `src/jarvis/desktop/` | The desktop app: `app.py` (the orb's window on the main thread, your line to Jarvis on its own thread) · `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog; tells the orb his state, whether he's awake and his voice level; answers his display commands; passes his events to the cards and your sign-in clicks to him) · `overlay.py` (the see-through, click-through window; remembers where it is and its centrepiece) · `card_panel.py` (the cards' panel beside it: takes clicks only on links and buttons, never your keyboard) · `cards.py` (what each card says) · `windows.py` (what both windows share) · `demo.py` (`jarvis desktop --demo`) · `web/` (the orb: `orb.html`, `orb.js` = rings + WebGL, `cores.js` = the 3D centrepieces; the cards: `cards.html`, `cards.css`, `cards.js`) |
+| `src/jarvis/cli.py` | The `jarvis` command (Typer): `chat` (incl. the sign-in buttons), `desktop` (the menu-bar app: what Jarvis.app opens), `up` (the same, starting Jarvis at once, output in the terminal), `install` / `uninstall` (Jarvis.app + Open at Login), `login` / `logout` (`google` or `notion`), `doctor` (keys, sign-ins, models, sub-agent health, voice + LiveKit server) |
+| `src/jarvis/up.py` | The crew: the LiveKit server and the voice agent, which the desktop app starts in order and stops in reverse; their tagged output (saved to `data/logs/up.log`); parts a crashed app left running are stopped at the next launch |
+| `src/jarvis/desktop/` | The desktop app: `app.py` (wiring: the menu bar, the orb, the shortcuts on the main thread; one copy at a time) · `controls.py` (start / stop / mute / talk / sign-ins: what the menu and shortcuts do) · `line.py` (the second thread: an asyncio loop for everything that waits) · `menu.py` (what the menu says, plain Python) + `menu_bar.py` (the icon and menu, AppKit) · `hotkeys.py` (⌃⌥J, ⌃⌥M: Carbon hot keys) · `install.py` + `launcher.c` (Jarvis.app and its LaunchAgent) · `room_client.py` (your echo-cancelled mic + speakers, a room per launch with Jarvis invited, the watchdog; tells the orb his state, whether he's awake and his voice level; answers his display commands; passes his events to the cards and your sign-in clicks to him) · `overlay.py` (the see-through, click-through window; remembers where it is and its centrepiece) · `card_panel.py` (the cards' panel beside it: takes clicks only on links and buttons, never your keyboard) · `cards.py` (what each card says) · `windows.py` (what both windows share) · `demo.py` (`jarvis desktop --demo`) · `web/` (the orb: `orb.html`, `orb.js` = rings + WebGL, `cores.js` = the 3D centrepieces; the cards: `cards.html`, `cards.css`, `cards.js`) |
 | `src/jarvis/display.py` | The orb's display commands (show / hide / move / switch / clear the cards), and the names the voice agent and desktop app use for cards and sign-in clicks |
 | `src/jarvis/events.py` | Event bus: tools announce what's happening (a sub-agent started, the weather, your agenda…); chat / voice / the cards decide how to show it |
 | `src/jarvis/prompts/` | System prompts as Markdown (`jarvis.md` = his personality · `search_agent.md` · `calendar_agent.md` · `notes_agent.md` · `approval_question.md` / `approval_reply.md` = asking "Shall I…?" and reading the answer · `summary.md` = how long days are condensed) |
@@ -33,7 +34,7 @@ Text mode: `jarvis chat` → Brain directly
 | `langgraph.json` | Tells `langgraph dev` (Studio) where Jarvis's graph is |
 | `tests/` | pytest tests |
 | `docs/` | This map |
-| `data/` | Runtime data, gitignored: `jarvis.db` = conversations + remembered facts · `voice/phrases/` = recorded fixed lines · `voice/kokoro/` = the fallback voice's model · `logs/up.log` = the last `jarvis up` run |
+| `data/` | Runtime data, gitignored: `jarvis.db` = conversations + remembered facts · `voice/phrases/` = recorded fixed lines · `voice/kokoro/` = the fallback voice's model · `logs/up.log` = everything since the desktop app opened · `logs/app.log` = what Jarvis.app printed elsewhere (crashes) · `orb.json` / `app.json` = the orb's and the menu's settings · `desktop.lock`, `crew.json` = one app at a time, the crew's process ids |
 | `pyproject.toml` · `uv.lock` | Dependencies; the lock pins exact versions |
 
 ## The brain: one chat turn
@@ -110,12 +111,25 @@ desktop app ─ main thread: a see-through window above everything (AppKit) → 
   hides them (a sign-in card still shows).
 - Text chat prints the further-reading links under his reply; no other cards there.
 
+## The menu bar and Jarvis.app: running in the background
+```
+at login: launchd → ~/Applications/Jarvis.app (launcher: Python as a child) → the desktop app → the menu-bar icon
+"Start Jarvis" / ⌃⌥J → the crew: LiveKit server → voice agent → the orb shows → the room client joins with your mic
+"Stop Jarvis" → leave the room → hide the orb → stop the agent → stop the server       (the mic is released)
+⌃⌥M → the mic track is muted: the Mac stops recording · ⌃⌥J while he talks → RPC jarvis.talk → he stops, listens
+```
+- macOS gives the mic to the app at the top of the process tree: Jarvis.app, not your terminal; asked once.
+- Start Options: launch at login (the icon, and he starts), show in the menu bar at login (the default), or neither.
+- The menu also shows how he is (a coloured dot), hides / shows the orb, picks its centrepiece, connects or
+  disconnects Google and Notion, and quits.
+
 ## Config
 - `.env`: secrets, gitignored · `.env.example`: template, committed. Includes Jarvis's Google sign-in app (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) and the LiveKit server (`LIVEKIT_URL` / `_API_KEY` / `_API_SECRET`; the defaults are the local dev server's fixed, public ones)
 - macOS Keychain: your Google and Notion tokens (entries `jarvis` / `google`, `jarvis` / `notion`), never in a file
 - `jarvis.toml`: preferences (models, `[location] home_city`, `[memory] new_day_hour`, `[auth] remember_days`, `[files] folders`, `[notion] open_pages`, `[voice] stt_model / tts_model / fallback_voice / follow_up_seconds`), committed
 - Google Cloud (Jarvis's Google app): Calendar API + Tasks API switched on; sign-in scopes: calendar events, your calendar list, tasks
-- `data/jarvis.db`: memory (today's conversation + facts), gitignored · `data/orb.json`: where the orb is and its centrepiece
+- `data/jarvis.db`: memory (today's conversation + facts), gitignored · `data/orb.json`: where the orb is and its centrepiece · `data/app.json`: whether Jarvis starts as the app opens
+- `~/Applications/Jarvis.app` (bundle id `io.github.bspowell.jarvis`: its mic permission) and `~/Library/LaunchAgents/io.github.bspowell.jarvis.plist` (open at login), both written by `jarvis install`
 - Priority: env vars > `.env` > `jarvis.toml` > code defaults
 - `SecretStr` hides keys in logs; `jarvis doctor` shows only set/missing
 
@@ -123,7 +137,8 @@ desktop app ─ main thread: a see-through window above everything (AppKit) → 
 - `uv`: Python + packages + lock file; `uv run <cmd>` runs inside the project
 - `ruff`: lint + format · `pytest`: tests · `gh`: GitHub
 - `langgraph dev`: LangGraph Studio, a visual debugger for the agent graph
-- `jarvis up`: the LiveKit server + voice agent + desktop app, colour-tagged output; Ctrl+C (or closing the window) stops them in reverse
+- `jarvis up`: the desktop app, starting Jarvis at once (LiveKit server + voice agent), colour-tagged output; Ctrl+C (or closing the window) stops them in reverse
+- `jarvis install` / `uninstall`: Jarvis.app + Open at Login (after editing desktop code: Quit Jarvis, reopen the app; agent code reloads on each Start)
 - `lk agent console`: the voice agent alone, with your mic + speakers in the terminal · `lk agent debugger`: typed turns, no audio, prints replies + timings
 - `jarvis desktop --demo`: the cards, then the orb's every look and centrepiece in turn, no Jarvis needed · `src/jarvis/desktop/web/orb.html#demo` and `cards.html#demo` in a browser: try looks, centrepieces, cards and backgrounds by hand
 - `livekit-server --dev`: the local LiveKit server (Homebrew `livekit`); `jarvis up` starts it unless one is running

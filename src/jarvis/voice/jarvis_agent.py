@@ -7,7 +7,7 @@ Before any of that, `stt_node` runs your mic through the wake-word gate (gate.py
 For the orb, he tells the room whether he's awake, and carries the display tool's commands to the
 desktop app (an RPC: the desktop does it and says what it did). The Brain's events go to the
 desktop too (a text stream): it shows some as cards, including a sign-in card whose button
-calls back here (another RPC).
+calls back here (another RPC), as does the desktop's talk shortcut (he listens to you now).
 """
 
 import asyncio
@@ -42,6 +42,7 @@ from jarvis.display import (
     DISPLAY_METHOD,
     EVENTS_TOPIC,
     SIGN_IN_METHOD,
+    TALK_METHOD,
     DisplayCommand,
 )
 from jarvis.events import Event
@@ -193,10 +194,17 @@ class JarvisAgent(Agent):
 
     # --- The orb and its cards (in the desktop app) ---
     def serve_desktop(self) -> None:
-        """Take the desktop app's calls: your clicks on sign-in cards. Once the session has
-        started: the room is connected by then."""
+        """Take the desktop app's calls: your clicks on sign-in cards, and the talk shortcut.
+        Once the session has started: the room is connected by then."""
         if self.room is not None and self.room.isconnected():
-            self.room.local_participant.register_rpc_method(SIGN_IN_METHOD, self.on_sign_in_click)
+            you = self.room.local_participant
+            you.register_rpc_method(SIGN_IN_METHOD, self.on_sign_in_click)
+            you.register_rpc_method(TALK_METHOD, self.on_talk_key)
+
+    async def on_talk_key(self, call: rtc.RpcInvocationData) -> str:
+        """You pressed the talk shortcut on the desktop: he listens to you now."""
+        self.gate.listen_now("you pressed the talk shortcut")
+        return "Listening."
 
     def desktop_here(self) -> bool:
         room = self.room

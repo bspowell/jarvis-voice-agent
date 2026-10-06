@@ -22,6 +22,7 @@ from jarvis.display import (
     DISPLAY_METHOD,
     EVENTS_TOPIC,
     SIGN_IN_METHOD,
+    TALK_METHOD,
     DisplayCommand,
 )
 from jarvis.events import Event, EventBus
@@ -449,6 +450,17 @@ async def test_a_click_for_an_unknown_account_is_refused(tmp_path):
     make_agent(FakeBrain(), tmp_path, room).serve_desktop()
     with pytest.raises(rtc.RpcError):
         await room.methods[SIGN_IN_METHOD](click("myspace"))
+
+
+async def test_the_talk_shortcut_reaches_the_gate(tmp_path):
+    room = FakeRoom()
+    agent = make_agent(FakeBrain(), tmp_path, room)
+    agent.serve_desktop()
+    asked: list[str] = []
+    agent.gate.listen_now = asked.append  # what the gate does with it: test_gate.py
+    call = rtc.RpcInvocationData("call-1", DESKTOP, "", 3.0, TALK_METHOD)
+    assert await room.methods[TALK_METHOD](call) == "Listening."
+    assert asked == ["you pressed the talk shortcut"]
 
 
 async def test_stop_clears_the_cards(tmp_path):

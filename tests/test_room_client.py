@@ -7,7 +7,7 @@ from livekit import api, rtc
 
 from jarvis.config import Settings
 from jarvis.desktop.room_client import AGENT_STATE, IDENTITY, RoomClient, invite, level, room_name
-from jarvis.display import AWAKE, DISPLAY_METHOD, SIGN_IN_METHOD, DisplayCommand
+from jarvis.display import AWAKE, DISPLAY_METHOD, SIGN_IN_METHOD, TALK_METHOD, DisplayCommand
 from jarvis.events import Event
 from jarvis.voice import AGENT_NAME
 
@@ -145,4 +145,43 @@ async def test_a_click_that_cannot_reach_jarvis_says_so_on_the_card():
     assert orb.events == [
         Event("sign_in_failed", {"service": "google"}),
         Event("sign_in_failed", {"service": "notion"}),
+    ]
+
+
+# --- Mute and the talk shortcut ---
+class FakeMicTrack:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def mute(self) -> None:
+        self.calls.append("mute")
+
+    def unmute(self) -> None:
+        self.calls.append("unmute")
+
+
+def test_mute_mutes_your_mic_track_and_tells_the_orb():
+    orb = FakeOrb()
+    client = client_with(orb)
+    client.mute(True)  # between rooms: remembered for the next one
+    client.mic_track = track = FakeMicTrack()
+    client.mute(False)
+    client.mute(True)
+    assert track.calls == ["unmute", "mute"]
+    assert orb.shown == [{"muted": True}, {"muted": False}, {"muted": True}]
+    assert client.muted
+
+
+async def test_the_talk_shortcut_asks_jarvis_to_listen():
+    client = client_with(FakeOrb())
+    await client.talk()  # he isn't in the room: nothing to call
+    client.room, client.jarvis = FakeLine(answer="Listening."), "agent-AJ_1"
+    await client.talk()
+    assert client.room.calls == [
+        {
+            "destination_identity": "agent-AJ_1",
+            "method": TALK_METHOD,
+            "payload": "",
+            "response_timeout": 3.0,
+        }
     ]
