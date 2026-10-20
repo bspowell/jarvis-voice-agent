@@ -4,7 +4,7 @@
 - Python 3.13 · uv (`uv add`, `uv run`) · src layout (`src/jarvis/`)
 - Brain: LangChain v1 `create_agent` + LangGraph · tracing: LangSmith
 - Voice: LiveKit Agents (local server) · Deepgram Flux · ElevenLabs (+ Kokoro fallback)
-- Architecture + roadmap: `docs/how-its-built.md`
+- Architecture: `docs/how-its-built.md`
 
 ## Rules
 - Clear names, small modules, type hints. `ruff check`, `ruff format --check`, `pytest` must pass.
@@ -12,5 +12,6 @@
 - Voice code never imports LangGraph: it only calls `Brain.turn()`.
 - Never write LangChain or LiveKit code from memory: load the matching skill / docs MCP first.
 - Claude models: frozen system prompt (time goes in user messages), no `temperature`, no forced `tool_choice`.
+- Public repo: no personal data in code, tests, docs or commit messages; demo and test data are made up.
 - Writes need user confirmation (HITL); no delete tools. Exception: Jarvis's own memory facts
   (`remember_fact` / `forget_fact` run when the user asks).

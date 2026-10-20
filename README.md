@@ -2,9 +2,16 @@
 
 A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, holographic overlay.
 
+## Requirements
+- macOS: the orb, the menu bar and Jarvis.app use AppKit; sign-ins are kept in the Keychain
+- [uv](https://docs.astral.sh/uv/) (it installs Python 3.13) and a local LiveKit server: `brew install livekit`
+- API keys in `.env`: `ANTHROPIC_API_KEY` for the brain; `DEEPGRAM_API_KEY`, `ELEVEN_API_KEY` and
+  `ELEVENLABS_VOICE_ID` for voice. Optional: `FIRECRAWL_API_KEY` (Search agent), `GOOGLE_CLIENT_ID` /
+  `GOOGLE_CLIENT_SECRET` (Calendar + Tasks), `LANGSMITH_API_KEY` (tracing). Notion needs no key.
+
 ## Setup
 1. `uv sync`: installs Python 3.13 + dependencies
-2. `cp .env.example .env`: then fill in keys as each phase needs them
+2. `cp .env.example .env`: then fill in the keys (see Requirements)
 3. `uv run jarvis doctor`: shows which keys Jarvis can see
 
 ## Commands

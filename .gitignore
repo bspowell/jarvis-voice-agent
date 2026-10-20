@@ -20,3 +20,10 @@ console-recordings/
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Local only: private notes, personal Claude Code instructions, vendored agent skills (see skills-lock.json)
+notes/
+CLAUDE.local.md
+.agents/
+.claude/skills/
+graphify-out/
