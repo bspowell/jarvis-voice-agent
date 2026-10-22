@@ -31,7 +31,7 @@ const IDLE_FPS = 15; // asleep or away, once settled: easy on the GPU
 const ACTIVE_FPS = 60;
 const VOICE_WOBBLE = 0.2; // how far his loudest syllables push the strands (share of the radius)
 const LIGHT_COVER = 0.35; // how much the light hides what's behind it (0: it only adds light)
-const GLASS = 0.62; // the dark glass behind the orb, so its light reads on bright screens
+const GLASS = 0.5; // the dark glass behind the orb, so its light reads on bright screens
 const FIT = 0.36; // the band's radius at full size, as a share of the canvas (room for ripples)
 const SWAP_SECONDS = 0.18; // a new core: the old one fades out, then the new one fades in
 
