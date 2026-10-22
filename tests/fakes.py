@@ -432,7 +432,7 @@ NEW_PAGE_URL = f"https://app.notion.com/p/{NEW_PAGE_ID}"
 class FakeNotion:
     """Stands in for Notion's MCP server: a real MCP server, in memory, with canned pages.
 
-    Results copy the shapes Notion's real server returns (checked live in Phase 6).
+    Results copy the shapes Notion's real server returns (checked against the live server).
     `created`, `updated` and `moved` record every write.
     """
 

@@ -123,11 +123,11 @@ class Settings(BaseSettings):
 
 # What each secret unlocks, shown by `jarvis doctor`.
 SECRET_PURPOSES = {
-    "anthropic_api_key": "Claude models (Phase 1)",
-    "langsmith_api_key": "LangSmith tracing (Phase 1)",
-    "firecrawl_api_key": "Web search agent (Phase 4)",
-    "google_client_id": "Google sign-in for the Calendar agent (Phase 5)",
-    "google_client_secret": "Google sign-in for the Calendar agent (Phase 5)",
+    "anthropic_api_key": "Claude models",
+    "langsmith_api_key": "LangSmith tracing",
+    "firecrawl_api_key": "Web search agent",
+    "google_client_id": "Google sign-in for the Calendar agent",
+    "google_client_secret": "Google sign-in for the Calendar agent",
     "deepgram_api_key": "Voice: speech-to-text (Deepgram Flux)",
     "eleven_api_key": "Voice: Jarvis's ElevenLabs voice",
     "elevenlabs_voice_id": "Voice: which ElevenLabs voice",
