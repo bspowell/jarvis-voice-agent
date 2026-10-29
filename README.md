@@ -2,7 +2,7 @@
 
 A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, holographic overlay.
 
-[One pager + Demo]([url](https://drive.google.com/file/d/1ty97muTuW23DntojP9cqFr8gXxBUUl-n/view?usp=sharing))
+[One Pager + Demo](https://drive.google.com/file/d/1ty97muTuW23DntojP9cqFr8gXxBUUl-n/view?usp=sharing)
 
 ## Setup
 Needs a Mac with [Homebrew](https://brew.sh), plus:
