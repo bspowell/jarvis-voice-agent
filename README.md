@@ -4,6 +4,8 @@ A dry-witted voice AI butler: LangChain + LangGraph brain, LiveKit voice, hologr
 
 [One Pager + Demo](https://drive.google.com/file/d/1ty97muTuW23DntojP9cqFr8gXxBUUl-n/view?usp=sharing)
 
+![How a request flows: the orchestrator hands work to three sub-agents, and every write waits at an approval gate](docs/images/request-flow.png)
+
 ## Setup
 Needs a Mac with [Homebrew](https://brew.sh), plus:
 - Xcode's command line tools: `xcode-select --install`
